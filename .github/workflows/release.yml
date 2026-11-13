@@ -92,9 +92,18 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           ls -lh BloodConnect-windows.exe BloodConnect-macos.zip
-          gh release create "$TAG" \
-            --repo "$REPO" \
-            --title "Blood Connect $TAG" \
-            --notes "Standalone builds of Blood Connect. Windows: unzip and run BloodConnect.exe. macOS: unzip and open BloodConnect.app (right-click, then Open, the first time)." \
-            BloodConnect-windows.exe BloodConnect-macos.zip
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; replacing its files."
+            gh release upload "$TAG" \
+              --repo "$REPO" \
+              --clobber \
+              BloodConnect-windows.exe BloodConnect-macos.zip
+          else
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --title "Blood Connect $TAG" \
+              --notes "Standalone builds of Blood Connect. Windows: unzip and run BloodConnect.exe. macOS: unzip and open BloodConnect.app (right-click, then Open, the first time)." \
+              BloodConnect-windows.exe BloodConnect-macos.zip
+          fi

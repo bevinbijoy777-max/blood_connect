@@ -41,6 +41,8 @@ python build.py --run               # build, then launch the result
 
 The build recipe is blood_connect.spec; the Python version floor and the PyInstaller extra are declared in pyproject.toml.
 
+Every push to main also builds both bundles in GitHub Actions and uploads them as run artifacts, so a broken Windows or macOS build shows up before you release anything. Only a v* tag (or a manual run) publishes a GitHub release; re-running one for an existing tag replaces the attached files.
+
 Landing page
 The download page lives in site/ and is a plain Vite site. It reports Core Web Vitals with @vercel/speed-insights once deployed to Vercel.
 
