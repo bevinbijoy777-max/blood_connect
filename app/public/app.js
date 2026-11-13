@@ -1,5 +1,8 @@
 /* Blood Connect web client. Vanilla JS, no build step, works offline-ish. */
 
+// Import Speed Insights (bundled module reports Core Web Vitals to Vercel)
+import "/speed-insights.js";
+
 const app = document.getElementById("app");
 const tabsEl = document.getElementById("tabs");
 const toastEl = document.getElementById("toast");
