@@ -19,3 +19,6 @@ dist/
 site/node_modules/
 site/dist/
 .vercel/
+
+# Local screenshots and scratch output
+artifacts/
