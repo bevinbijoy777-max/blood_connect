@@ -9,27 +9,17 @@ injectSpeedInsights();
 const LATEST_RELEASE_API =
   "https://api.github.com/repos/bevinbijoy777-max/blood_connect/releases/latest";
 
-/**
- * The download buttons point at GitHub's "latest release" URLs, which return a
- * 404 until CI publishes the first build. The page says so up front; once a
- * release exists that notice is wrong, so drop it.
- */
-async function refreshReleaseNotice() {
-  const notice = document.querySelector("[data-release-note]");
-  if (!notice) {
-    return;
-  }
-  try {
-    const response = await fetch(LATEST_RELEASE_API, {
-      headers: { Accept: "application/vnd.github+json" },
-    });
+// The download buttons point at GitHub's "latest release" URLs. The static
+// notice warns that a 404 means nothing is published yet, which stays true
+// whether or not this request succeeds. Only a confirmed release removes it.
+fetch(LATEST_RELEASE_API, { headers: { Accept: "application/vnd.github+json" } })
+  .then((response) => {
     if (response.ok) {
-      notice.remove();
+      document.querySelector("[data-release-note]")?.remove();
     }
-  } catch {
-    // Offline or the API is unreachable: keep the notice rather than imply
-    // that the downloads are ready.
-  }
-}
-
-void refreshReleaseNotice();
+    // A 404, or a 403 from GitHub's rate limit, leaves the notice in place:
+    // its wording does not assert that a release is missing.
+  })
+  .catch(() => {
+    // Blocked, offline or otherwise unavailable: same reasoning.
+  });

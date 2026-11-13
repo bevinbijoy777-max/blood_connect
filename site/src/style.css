@@ -6,6 +6,16 @@
   --muted: #9aa7b6;
   --accent: #e5484d;
   --accent-dark: #c23a3f;
+  --link: #f0878b;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
 }
 
 * {
@@ -105,10 +115,6 @@ h1 {
   color: #f6e3b4;
 }
 
-.release-note a {
-  color: #f6e3b4;
-}
-
 main {
   max-width: 46rem;
   margin: 0 auto;
@@ -154,22 +160,6 @@ code {
 
 .features li {
   margin-bottom: 0.7rem;
-}
-
-pre {
-  overflow-x: auto;
-  margin: 0 0 0.9rem;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--panel);
-}
-
-pre code {
-  padding: 0;
-  background: none;
-  font-size: 0.875rem;
-  white-space: pre;
 }
 
 .disclaimer p {
