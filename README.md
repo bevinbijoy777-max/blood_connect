@@ -53,6 +53,8 @@ npm install
 npm run build
 npm run dev                     # local Worker + local database on http://localhost:8787
 
+Publishing the web app to Freebuff Sites starts from the repository root: package.json builds app/ and deploy.json points at its output. Keeping those at the root is what lets the Publish button find the app; the desktop files are not part of that build.
+
 Add it to a phone's home screen with "Add to Home Screen" for a full-screen app.
 
 Landing page

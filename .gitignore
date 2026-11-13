@@ -26,5 +26,10 @@ app/dist/
 app/.wrangler/
 .wrangler/
 
+# Root build helper for publishing the web app to Freebuff Sites
+/node_modules/
+/package-lock.json
+/freebuff-sites-build/
+
 # Local screenshots and scratch output
 artifacts/

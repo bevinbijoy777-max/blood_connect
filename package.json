@@ -1,0 +1,8 @@
+{
+  "name": "blood-connect",
+  "private": true,
+  "description": "Builds the mobile web app in app/ for Freebuff Sites. The desktop app is Python; see README.md.",
+  "scripts": {
+    "build": "npm --prefix app ci && npm --prefix app run build"
+  }
+}

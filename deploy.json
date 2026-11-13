@@ -5,9 +5,9 @@
     {
       "name": "worker.js",
       "type": "esm",
-      "path": "./dist/worker.js"
+      "path": "./app/dist/worker.js"
     }
   ],
-  "assetsDirectory": "./dist/public",
+  "assetsDirectory": "./app/dist/public",
   "spa": false
 }
