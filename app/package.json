@@ -5,12 +5,13 @@
   "type": "module",
   "description": "Blood Connect as a mobile-first web app.",
   "scripts": {
-    "build": "esbuild src/worker.js --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/worker.js && node scripts/copy-assets.mjs",
+    "build": "esbuild src/worker.js --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/worker.js && node scripts/copy-assets.mjs && esbuild src/speed-insights.js --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/public/speed-insights.js",
     "dev": "wrangler dev --config wrangler.local.jsonc --port 8787",
     "test": "node scripts/test-service.mjs && node scripts/test-api.mjs"
   },
   "dependencies": {
-    "@freebuff/auth": "^0.1.0"
+    "@freebuff/auth": "^0.1.0",
+    "@vercel/speed-insights": "^2.1.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
