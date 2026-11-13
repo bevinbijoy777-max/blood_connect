@@ -27,3 +27,18 @@ jobs:
       - name: Run tests
         working-directory: app
         run: npm test
+
+  desktop:
+    name: Desktop rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The desktop app is standard library only, so there is nothing to install.
+      # These tests never open a window, so no display or tkinter is needed.
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
