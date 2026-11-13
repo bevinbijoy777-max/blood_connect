@@ -1,0 +1,92 @@
+name: Build desktop release
+
+# Builds BloodConnect.exe on Windows and BloodConnect.app on macOS, then
+# attaches both to a GitHub release. PyInstaller cannot cross-compile, so each
+# platform is built on its own runner.
+#
+# Run it from Actions -> "Build desktop release" -> Run workflow, or push a tag:
+#   git tag v1.0.0 && git push origin v1.0.0
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (for example v1.0.0)"
+        required: true
+        default: "v1.0.0"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: BloodConnect-windows
+          - os: macos-latest
+            artifact: BloodConnect-macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Confirm Tkinter is available
+        run: python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade "pyinstaller>=6.0"
+
+      - name: Build the app
+        run: python build.py
+
+      - name: Zip the macOS bundle
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/BloodConnect.app BloodConnect-macos.zip
+
+      - name: Collect the Windows executable
+        if: runner.os == 'Windows'
+        run: copy dist\BloodConnect.exe BloodConnect-windows.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            BloodConnect-windows.exe
+            BloodConnect-macos.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Lay out the files
+        run: find artifacts -type f -exec mv {} . \;
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -lh BloodConnect-windows.exe BloodConnect-macos.zip
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --title "Blood Connect $TAG" \
+            --notes "Standalone builds of Blood Connect. Windows: unzip and run BloodConnect.exe. macOS: unzip and open BloodConnect.app (right-click, then Open, the first time)." \
+            BloodConnect-windows.exe BloodConnect-macos.zip
