@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blood Connect — find a matching blood donor</title>
+    <meta
+      name="description"
+      content="Blood Connect is a free desktop app that connects people who need blood with eligible donors of the same blood group."
+    />
+  </head>
+  <body>
+    <header class="hero">
+      <p class="eyebrow">Free desktop app · Windows and macOS</p>
+      <h1>Blood Connect</h1>
+      <p class="tagline">
+        Connects people who need blood with registered donors of the same blood
+        group — and keeps every donor's phone number private until they accept.
+      </p>
+      <div class="actions">
+        <a
+          class="button primary"
+          data-download
+          href="https://github.com/bevinbijoy777-max/blood_connect/releases/latest/download/BloodConnect-windows.exe"
+        >
+          Download for Windows
+        </a>
+        <a
+          class="button"
+          data-download
+          href="https://github.com/bevinbijoy777-max/blood_connect/releases/latest/download/BloodConnect-macos.zip"
+        >
+          Download for macOS
+        </a>
+      </div>
+      <p class="release-note" data-release-note>
+        <strong>No release yet.</strong> The Windows and macOS files are built
+        by CI and have not been published so far, so these two buttons return a
+        404 for now. Run the app from source today — instructions below — or
+        check the
+        <a href="https://github.com/bevinbijoy777-max/blood_connect/releases"
+          >releases page</a
+        >
+        for the first build.
+      </p>
+      <p class="note">
+        Runs entirely on your own computer. No account, no sign-up, no data
+        leaves your machine.
+      </p>
+    </header>
+
+    <main>
+      <section>
+        <h2>What it does</h2>
+        <ul class="features">
+          <li>
+            <strong>Register as a seeker or a donor.</strong> Donors add their
+            blood group and last donation date; passwords are stored only as
+            salted PBKDF2 hashes.
+          </li>
+          <li>
+            <strong>Submit a request.</strong> Patient, blood group, units,
+            hospital, city, contact and urgency.
+          </li>
+          <li>
+            <strong>Every matching donor is notified.</strong> Only donors who
+            are available and currently eligible (90 days since their last
+            donation) are included.
+          </li>
+          <li>
+            <strong>Donors accept or decline.</strong> Accepting marks the
+            request "Donor found" and reveals the donor's contact number to the
+            seeker.
+          </li>
+          <li>
+            <strong>Search registered donors</strong> by blood group and city.
+            Numbers stay hidden until a donor agrees.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Installing</h2>
+        <p>
+          <strong>Windows:</strong> run <code>BloodConnect.exe</code>. If
+          SmartScreen shows a warning, choose <em>More info</em> and then
+          <em>Run anyway</em> — the build is unsigned.
+        </p>
+        <p>
+          <strong>macOS:</strong> unzip and drag <code>BloodConnect.app</code>
+          into Applications. The first time, right-click the app and choose
+          <em>Open</em> to get past Gatekeeper.
+        </p>
+        <p>
+          Your accounts and requests live in a single file,
+          <code>blood_connect.db</code>, inside your per-user application data
+          folder. Keep it to keep your data, delete it to start over, and never
+          share it — it holds names, phone numbers and password hashes.
+        </p>
+      </section>
+
+      <section>
+        <h2>Run it from source</h2>
+        <p>
+          Needs Python 3.10+ with Tkinter. No third-party packages required.
+        </p>
+        <pre><code>git clone https://github.com/bevinbijoy777-max/blood_connect.git
+cd blood_connect
+python run.py</code></pre>
+        <p>
+          Or build the standalone app yourself with
+          <code>python build.py</code>, which uses the
+          <code>blood_connect.spec</code> recipe.
+        </p>
+      </section>
+
+      <section class="disclaimer">
+        <h2>Please read</h2>
+        <p>
+          Blood Connect only introduces people to each other. Final donor
+          eligibility and blood compatibility must always be confirmed by
+          qualified medical staff.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <a href="https://github.com/bevinbijoy777-max/blood_connect"
+        >Source code on GitHub</a
+      >
+      <span>·</span>
+      <a href="https://github.com/bevinbijoy777-max/blood_connect/releases"
+        >All releases</a
+      >
+    </footer>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

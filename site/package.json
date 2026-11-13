@@ -1,0 +1,18 @@
+{
+  "name": "blood-connect-site",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Download page for the Blood Connect desktop app.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vercel/speed-insights": "^2.1.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  }
+}

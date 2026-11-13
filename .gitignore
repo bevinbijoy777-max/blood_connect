@@ -14,3 +14,8 @@ __pycache__/
 build/
 dist/
 *.manifest
+
+# Landing page (site/)
+site/node_modules/
+site/dist/
+.vercel/

@@ -41,11 +41,20 @@ python build.py --run               # build, then launch the result
 
 The build recipe is blood_connect.spec; the Python version floor and the PyInstaller extra are declared in pyproject.toml.
 
+Landing page
+The download page lives in site/ and is a plain Vite site. It reports Core Web Vitals with @vercel/speed-insights once deployed to Vercel.
+
+cd site
+npm install
+npm run dev      # local preview on http://localhost:5173
+npm run build    # static output in site/dist
+
 Project layout
 run.py                  start the application
 build.py                build a standalone executable with PyInstaller
 blood_connect.spec      PyInstaller recipe for the standalone app
 pyproject.toml          Python 3.10+ floor, stdlib-only dependencies, build extra
+site/                   download landing page (Vite + @vercel/speed-insights)
 blood_connect/
   models.py             domain classes: Person, User, Donor, BloodRequest, Notification
   database.py           SQLite schema plus Person / Request / Notification repositories
