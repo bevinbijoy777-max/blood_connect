@@ -20,5 +20,11 @@ site/node_modules/
 site/dist/
 .vercel/
 
+# Web app (app/)
+app/node_modules/
+app/dist/
+app/.wrangler/
+.wrangler/
+
 # Local screenshots and scratch output
 artifacts/

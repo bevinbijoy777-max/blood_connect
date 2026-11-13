@@ -1,0 +1,19 @@
+{
+  "name": "blood-connect-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Blood Connect as a mobile-first web app.",
+  "scripts": {
+    "build": "esbuild src/worker.js --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/worker.js && node scripts/copy-assets.mjs",
+    "dev": "wrangler dev --config wrangler.local.jsonc --port 8787",
+    "deploy": "npm run build"
+  },
+  "dependencies": {
+    "@freebuff/auth": "^0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "wrangler": "^4.161.0"
+  }
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Blood Connect</title>
+    <meta name="description" content="Find a matching blood donor near you, or answer a request." />
+    <meta name="theme-color" content="#0e1116" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Blood Connect" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main id="app" class="app" aria-live="polite">
+      <p class="muted center">Loading…</p>
+    </main>
+    <nav id="tabs" class="tabbar" hidden aria-label="Sections"></nav>
+    <div id="toast" class="toast" hidden role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

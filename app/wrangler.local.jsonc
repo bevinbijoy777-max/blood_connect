@@ -1,0 +1,27 @@
+// Local development only. The deployed environment injects its own values.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blood-connect-app",
+  "main": "dist/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "blood-connect-local",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "vars": {
+    // Development client from sites_enable_auth. Never the production one.
+    "FREEBUFF_CLIENT_ID": "276c39e6-163c-484a-a9c4-3cc494f6f924",
+    "FREEBUFF_ISSUER": "https://freebuff.com/oidc",
+    "APP_ORIGIN": "http://localhost:8787"
+  },
+  "observability": { "enabled": true }
+}

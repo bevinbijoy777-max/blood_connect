@@ -43,6 +43,19 @@ The build recipe is blood_connect.spec; the Python version floor and the PyInsta
 
 Every push to main also builds both bundles in GitHub Actions and uploads them as run artifacts, so a broken Windows or macOS build shows up before you release anything. Only a v* tag (or a manual run) publishes a GitHub release; re-running one for an existing tag replaces the attached files.
 
+Mobile web app
+app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and contact numbers stay hidden until a donor accepts. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
+
+Live app: https://site-2fc00d1846d74613bc1574afdce9abc8.freebuff.page
+
+cd app
+npm install
+npm run build
+npm run dev                     # local Worker + local database on http://localhost:8787
+node scripts/test-service.mjs   # matching, eligibility and response rules
+
+Add it to a phone's home screen with "Add to Home Screen" for a full-screen app.
+
 Landing page
 The download page lives in site/ and is a plain Vite site. It reports Core Web Vitals with @vercel/speed-insights once deployed to Vercel.
 
@@ -57,6 +70,7 @@ build.py                build a standalone executable with PyInstaller
 blood_connect.spec      PyInstaller recipe for the standalone app
 pyproject.toml          Python 3.10+ floor, stdlib-only dependencies, build extra
 site/                   download landing page (Vite + @vercel/speed-insights)
+app/                    mobile web app (Worker + D1 + Sign in with Freebuff)
 blood_connect/
   models.py             domain classes: Person, User, Donor, BloodRequest, Notification
   database.py           SQLite schema plus Person / Request / Notification repositories
