@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blood-connect"
+version = "1.0.0"
+description = "Blood Connect -- a desktop blood donation app built with Python, Tkinter and SQLite."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["blood", "donation", "desktop", "tkinter", "sqlite"]
+classifiers = [
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+# The application itself uses only the standard library.
+dependencies = []
+
+[project.optional-dependencies]
+# Needed only to build the standalone .exe / .app bundle.
+build = ["pyinstaller>=6.0"]
+
+[tool.setuptools]
+packages = ["blood_connect"]

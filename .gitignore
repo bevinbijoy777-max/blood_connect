@@ -9,3 +9,8 @@
 # Python bytecode and caches
 __pycache__/
 *.py[cod]
+
+# PyInstaller / packaging output
+build/
+dist/
+*.manifest
