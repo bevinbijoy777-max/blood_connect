@@ -23,11 +23,16 @@ import {
 
 const ACTIVE_STATUSES = ["Open", "Donor found"];
 
+function availabilityText(row, eligible, nextEligible) {
+  if (row.role !== "donor") return "Not a donor";
+  if (!row.accepting_requests) return "Not accepting requests";
+  return eligible ? "Available to donate" : `Eligible again from ${nextEligible}`;
+}
+
 export function profileToJson(row) {
   if (!row) return null;
   const { eligible, nextEligible } = eligibility(row.last_donation);
   const available = Boolean(row.accepting_requests);
-  const canReceive = row.role === "donor" && available && eligible;
   return {
     name: row.name,
     email: row.email,
@@ -39,15 +44,8 @@ export function profileToJson(row) {
     acceptingRequests: available,
     eligible,
     nextEligible,
-    canReceiveRequests: canReceive,
-    availability:
-      row.role !== "donor"
-        ? "Not a donor"
-        : !available
-          ? "Not accepting requests"
-          : eligible
-            ? "Available to donate"
-            : `Eligible again from ${nextEligible}`,
+    canReceiveRequests: row.role === "donor" && available && eligible,
+    availability: availabilityText(row, eligible, nextEligible),
   };
 }
 
@@ -135,7 +133,6 @@ export class BloodConnectService {
             : 0,
       created_at: existing?.created_at ?? todayIso(),
     };
-    if (input.name) profile.name = cleanText(input.name, "Full name", 80);
     return this.profiles.save(profile);
   }
 
@@ -212,19 +209,23 @@ export class BloodConnectService {
     const rows = await this.requests.listForRequester(sub);
     const result = [];
     for (const row of rows) {
-      const responses = await this.notifications.listForRequest(row.id, "response");
-      const detailed = [];
-      for (const notification of responses) {
-        const actor = notification.actor_sub ? await this.profiles.get(notification.actor_sub) : null;
-        detailed.push({
-          ...notificationToJson(notification),
-          // A donor's phone number only reaches the seeker by accepting.
-          donor: actor
-            ? { name: actor.name, bloodGroup: actor.blood_group, city: actor.city, phone: actor.phone }
-            : null,
-        });
-      }
-      result.push(requestToJson(row, { responses: detailed }));
+      const responses = await this.notifications.listResponsesForRequest(row.id);
+      result.push(
+        requestToJson(row, {
+          responses: responses.map((response) => ({
+            ...notificationToJson(response),
+            // The seeker only learns a donor's number once that donor accepts.
+            donor: response.actor_name
+              ? {
+                  name: response.actor_name,
+                  bloodGroup: response.actor_group,
+                  city: response.actor_city,
+                  phone: response.actor_phone,
+                }
+              : null,
+          })),
+        }),
+      );
     }
     return result;
   }

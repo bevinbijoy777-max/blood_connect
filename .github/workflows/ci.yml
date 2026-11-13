@@ -1,0 +1,29 @@
+name: Tests
+
+# The app's rule and route suites are dependency-free, so they run fast and
+# catch broken authorization or validation before anything is deployed.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  app:
+    name: Web app rules and routes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Run tests
+        working-directory: app
+        run: npm test

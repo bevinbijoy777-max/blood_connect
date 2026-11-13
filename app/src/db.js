@@ -199,15 +199,20 @@ export class NotificationRepo {
     return results ?? [];
   }
 
-  async listForRequest(requestId, kind) {
-    let sql = "SELECT * FROM notifications WHERE request_id = ?";
-    const params = [requestId];
-    if (kind) {
-      sql += " AND kind = ?";
-      params.push(kind);
-    }
-    sql += " ORDER BY id DESC";
-    const { results } = await this.db.prepare(sql).bind(...params).all();
+  /** Donor responses for one request, with the donor's contact details. */
+  async listResponsesForRequest(requestId) {
+    const { results } = await this.db
+      .prepare(
+        `SELECT n.id, n.request_id, n.kind, n.message, n.response, n.created_at,
+                p.name AS actor_name, p.blood_group AS actor_group,
+                p.city AS actor_city, p.phone AS actor_phone
+           FROM notifications n
+           LEFT JOIN profiles p ON p.sub = n.actor_sub
+          WHERE n.request_id = ? AND n.kind = 'response'
+          ORDER BY n.id DESC`,
+      )
+      .bind(requestId)
+      .all();
     return results ?? [];
   }
 
@@ -217,15 +222,5 @@ export class NotificationRepo {
       .bind(response, id)
       .run();
   }
-
-  async countPending(sub) {
-    const row = await this.db
-      .prepare(
-        `SELECT COUNT(*) AS total FROM notifications
-          WHERE recipient_sub = ? AND kind = 'request' AND response = 'Pending'`,
-      )
-      .bind(sub)
-      .first();
-    return Number(row?.total ?? 0);
-  }
 }
+

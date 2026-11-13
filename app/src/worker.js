@@ -6,7 +6,7 @@
 
 import { createFreebuffAuth, isSameOriginRequest } from "@freebuff/auth";
 
-import { errorResponse, handleApi } from "./api.js";
+import { handleApi } from "./api.js";
 
 let auth;
 let app;
@@ -30,17 +30,11 @@ function setup(env) {
   });
   const signedIn = auth;
 
-  app ??= signedIn.wrap(async (request, env) => {
-    const url = new URL(request.url);
-
-    if (url.pathname.startsWith("/api/")) {
-      try {
-        return await handleApi(request, env, { auth: signedIn, isSameOriginRequest });
-      } catch (error) {
-        return errorResponse(error);
-      }
+  app ??= signedIn.wrap((request, env) => {
+    const { pathname } = new URL(request.url);
+    if (pathname.startsWith("/api/")) {
+      return handleApi(request, env, { auth: signedIn, isSameOriginRequest });
     }
-
     return env.ASSETS.fetch(request);
   });
 
