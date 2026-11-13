@@ -1,7 +1,7 @@
 name: Tests
 
-# The app's rule and route suites are dependency-free, so they run fast and
-# catch broken authorization or validation before anything is deployed.
+# Both suites are dependency-free, so they run fast and catch broken
+# authorization or validation before anything is deployed.
 
 on:
   push:

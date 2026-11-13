@@ -35,23 +35,33 @@ def days_ago(days: int) -> str:
     return (TODAY - timedelta(days=days)).isoformat()
 
 
-def make_donor(
-    last_donation: str | None = None,
-    available: bool = True,
-    password_hash: str = "unused",
-    password_salt: str = "unused",
-) -> Donor:
+def make_donor(last_donation: str | None = None, available: bool = True) -> Donor:
     return Donor(
         full_name="Ravi Kumar",
         email="ravi@example.com",
         phone="9812345678",
         city="Pune",
-        password_hash=password_hash,
-        password_salt=password_salt,
+        password_hash="unused",
+        password_salt="unused",
         blood_group="O+",
         last_donation=last_donation,
         is_available=available,
     )
+
+
+def make_request(**overrides) -> BloodRequest:
+    values = dict(
+        requester_id=1,
+        patient_name="Asha Rao",
+        blood_group="O+",
+        units=2,
+        hospital="Ruby Hall",
+        city="Pune",
+        contact="9876543210",
+        urgency="Urgent",
+    )
+    values.update(overrides)
+    return BloodRequest(**values)
 
 
 class EmailTests(unittest.TestCase):
@@ -92,12 +102,16 @@ class PasswordTests(unittest.TestCase):
             validate_password("12345")
         validate_password("123456")
 
-    def test_hash_is_salted_and_verifiable(self):
+    def test_same_password_gets_a_fresh_salt(self):
         salt_a, digest_a = hash_password("secret123")
         salt_b, digest_b = hash_password("secret123")
         self.assertNotEqual(salt_a, salt_b, "each password needs its own salt")
         self.assertNotEqual(digest_a, digest_b, "the same password must hash differently")
-        donor = make_donor(password_hash=digest_a, password_salt=salt_a)
+
+    def test_hash_can_be_verified_but_not_guessed(self):
+        donor = Donor.with_password(
+            "Ravi Kumar", "ravi@example.com", "9812345678", "Pune", "secret123", blood_group="O+"
+        )
         self.assertTrue(donor.verify_password("secret123"))
         self.assertFalse(donor.verify_password("wrong"))
         self.assertFalse(donor.verify_password(""))
@@ -145,50 +159,41 @@ class EligibilityTests(unittest.TestCase):
 
 
 class RequestTests(unittest.TestCase):
-    def base(self, **overrides):
-        values = dict(
-            requester_id=1,
-            patient_name="Asha Rao",
-            blood_group="O+",
-            units=2,
-            hospital="Ruby Hall",
-            city="Pune",
-            contact="9876543210",
-            urgency="Urgent",
-        )
-        values.update(overrides)
-        return BloodRequest(**values)
-
     def test_accepts_a_valid_request(self):
-        request = self.base()
+        request = make_request()
         self.assertEqual(request.status_label, "Open")
         self.assertTrue(request.is_active)
 
     def test_rejects_units_outside_one_to_ten(self):
         for units in (0, 11, -1):
             with self.subTest(units=units), self.assertRaises(ValidationError):
-                self.base(units=units)
+                make_request(units=units)
 
     def test_rejects_unknown_blood_group_or_urgency(self):
         with self.assertRaises(ValidationError):
-            self.base(blood_group="X+")
+            make_request(blood_group="X+")
         with self.assertRaises(ValidationError):
-            self.base(urgency="Whenever")
+            make_request(urgency="Whenever")
 
     def test_rejects_blank_patient_name(self):
         with self.assertRaises(ValidationError):
-            self.base(patient_name="   ")
+            make_request(patient_name="   ")
 
-    def test_closed_request_cannot_be_cancelled_twice(self):
-        request = self.base()
+    def test_fulfilled_request_cannot_be_cancelled(self):
+        request = make_request()
         request.mark_fulfilled()
         with self.assertRaises(ValidationError):
             request.cancel()
 
-    def test_mark_matched_only_from_open(self):
-        request = self.base()
+    def test_mark_matched_only_applies_to_open_requests(self):
+        request = make_request()
         request.mark_matched()
         self.assertEqual(request.status_label, "Donor found")
+
+        cancelled = make_request()
+        cancelled.cancel()
+        cancelled.mark_matched()
+        self.assertEqual(cancelled.status_label, "Cancelled")
 
 
 class NotificationTests(unittest.TestCase):

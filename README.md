@@ -52,7 +52,6 @@ cd app
 npm install
 npm run build
 npm run dev                     # local Worker + local database on http://localhost:8787
-node scripts/test-service.mjs   # matching, eligibility and response rules
 
 Add it to a phone's home screen with "Add to Home Screen" for a full-screen app.
 
@@ -63,6 +62,14 @@ cd site
 npm install
 npm run dev      # local preview on http://localhost:5173
 npm run build    # static output in site/dist
+
+Tests
+Both sides have a suite for the rules that matter most — who is notified, who may answer, who may close a request — and neither needs a dependency installed or a display.
+
+python -m unittest discover -s tests -v   # desktop: validation, matching, responses, ownership
+cd app && npm test                        # web: service rules, then the HTTP routes
+
+GitHub Actions runs both suites on every push and pull request, so a broken rule shows up before anything is released.
 
 Project layout
 run.py                  start the application

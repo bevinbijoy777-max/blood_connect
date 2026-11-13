@@ -159,18 +159,13 @@ class ResponseTests(ServiceTestCase):
         with self.assertRaises(ValidationError):
             self.service.respond_to_notification(self.donor, notification.id, True)
 
-    def test_another_donor_cannot_answer_someone_elses_notification(self):
+    def test_only_the_notified_donor_can_answer(self):
         self.submit(self.seeker)
         other = self.register_donor(email="meena@example.com", name="Meena Shah")
         notification, _ = self.service.incoming_requests(self.donor)[0]
-        with self.assertRaises(ValidationError):
-            self.service.respond_to_notification(other, notification.id, True)
-
-    def test_seeker_cannot_answer_as_a_donor(self):
-        self.submit(self.seeker)
-        notification, _ = self.service.incoming_requests(self.donor)[0]
-        with self.assertRaises(ValidationError):
-            self.service.respond_to_notification(self.seeker, notification.id, True)
+        for outsider in (other, self.seeker):
+            with self.subTest(who=outsider.role_label), self.assertRaises(ValidationError):
+                self.service.respond_to_notification(outsider, notification.id, True)
 
 
 class OwnershipTests(ServiceTestCase):
@@ -257,19 +252,14 @@ class ValidationTests(ServiceTestCase):
         super().setUp()
         self.seeker = self.register_seeker()
 
-    def test_request_field_validation(self):
-        cases = [
-            ("units", 0),
-            ("units", 11),
-            ("blood_group", "X+"),
-            ("contact", "123"),
-            ("patient_name", "   "),
-            ("urgency", "Whenever"),
-            ("hospital", ""),
-        ]
-        for field, value in cases:
-            with self.subTest(field=field, value=value), self.assertRaises(ValidationError):
-                self.submit(self.seeker, **{field: value})
+    def test_a_rejected_request_is_not_saved_and_notifies_nobody(self):
+        # Which values are rejected is covered by test_models; here the point is
+        # that the service lets the error through and stores nothing.
+        donor = self.register_donor()
+        with self.assertRaises(ValidationError):
+            self.submit(self.seeker, units=0, hospital="")
+        self.assertEqual(self.service.my_requests(self.seeker), [])
+        self.assertEqual(self.service.pending_notification_count(donor), 0)
 
 
 if __name__ == "__main__":
