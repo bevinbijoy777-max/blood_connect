@@ -1,0 +1,11 @@
+# SQLite databases written by the app (blood_connect.db, or --database <name>.db)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
