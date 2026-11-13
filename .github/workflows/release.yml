@@ -5,9 +5,9 @@ name: Build desktop release
 # platform is built on its own runner.
 #
 # Every push to main builds both platforms and uploads the artifacts, so a
-# broken build shows up before a version is tagged. Publishing a release is
-# limited to tags and manual runs:
-#   Run it from Actions -> "Build desktop release" -> Run workflow, or push a tag:
+# broken build shows up before a version is tagged. Publishing is limited to
+# v* tags and manual runs:
+#   Actions -> "Build desktop release" -> Run workflow, or:
 #   git tag v1.0.0 && git push origin v1.0.0
 
 on:
@@ -23,9 +23,6 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -35,9 +32,9 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: BloodConnect-windows
+            asset: BloodConnect-windows.exe
           - os: macos-latest
-            artifact: BloodConnect-macos
+            asset: BloodConnect-macos.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -46,29 +43,27 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Confirm Tkinter is available
-        run: python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
-
       - name: Install PyInstaller
-        run: python -m pip install --upgrade "pyinstaller>=6.0"
+        run: python -m pip install "pyinstaller>=6.0"
 
+      # build.py checks the Python floor and that tkinter is present before
+      # building, so a Tk-less runner fails with an explanation instead of
+      # producing a bundle that cannot open a window.
       - name: Build the app
         run: python build.py
 
-      - name: Zip the macOS bundle
+      - name: Package the macOS bundle
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent dist/BloodConnect.app BloodConnect-macos.zip
+        run: ditto -c -k --keepParent dist/BloodConnect.app ${{ matrix.asset }}
 
-      - name: Collect the Windows executable
+      - name: Package the Windows executable
         if: runner.os == 'Windows'
-        run: copy dist\BloodConnect.exe BloodConnect-windows.exe
+        run: copy dist\BloodConnect.exe ${{ matrix.asset }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: |
-            BloodConnect-windows.exe
-            BloodConnect-macos.zip
+          name: ${{ matrix.os }}
+          path: ${{ matrix.asset }}
           if-no-files-found: error
 
   release:
@@ -78,32 +73,27 @@ jobs:
     # publish anything. Releases come from a v* tag or a manual run.
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Lay out the files
-        run: find artifacts -type f -exec mv {} . \;
+          merge-multiple: true
 
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag || github.ref_name }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          ls -lh BloodConnect-windows.exe BloodConnect-macos.zip
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+          files=(BloodConnect-windows.exe BloodConnect-macos.zip)
+          if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; replacing its files."
-            gh release upload "$TAG" \
-              --repo "$REPO" \
-              --clobber \
-              BloodConnect-windows.exe BloodConnect-macos.zip
+            gh release upload "$TAG" --clobber "${files[@]}"
           else
             gh release create "$TAG" \
-              --repo "$REPO" \
               --title "Blood Connect $TAG" \
               --notes "Standalone builds of Blood Connect. Windows: unzip and run BloodConnect.exe. macOS: unzip and open BloodConnect.app (right-click, then Open, the first time)." \
-              BloodConnect-windows.exe BloodConnect-macos.zip
+              "${files[@]}"
           fi
