@@ -7,6 +7,8 @@ Tkinter interface free of SQL and business logic.
 
 from __future__ import annotations
 
+from datetime import date
+
 from .database import (
     Database,
     NotificationRepository,
@@ -14,6 +16,7 @@ from .database import (
     RequestRepository,
 )
 from .models import (
+    MAX_REQUESTS_PER_DAY,
     BloodRequest,
     Donor,
     Notification,
@@ -85,6 +88,13 @@ class BloodConnectService:
         urgency="Normal",
         note="",
     ) -> tuple[BloodRequest, int]:
+        used_today = self._requests.count_created_on(seeker.id, date.today())
+        if used_today >= MAX_REQUESTS_PER_DAY:
+            raise ValidationError(
+                f"You can send {MAX_REQUESTS_PER_DAY} requests a day. "
+                "Please try again tomorrow."
+            )
+
         request = BloodRequest(
             requester_id=seeker.id,
             patient_name=patient_name,
@@ -174,7 +184,12 @@ class BloodConnectService:
 
     def pending_notification_count(self, donor: Person) -> int:
         self._ensure_donor(donor)
-        return self._notifications.count_pending(donor.id)
+        # An expired request cannot be answered, so it is no longer waiting.
+        return sum(
+            1
+            for notification, request in self.incoming_requests(donor)
+            if notification.is_pending and request.is_active
+        )
 
     def respond_to_notification(self, donor: Donor, notification_id: int, accepted: bool) -> str:
         self._ensure_donor(donor)
@@ -187,8 +202,10 @@ class BloodConnectService:
         request = self._requests.find_by_id(notification.request_id)
         if request is None:
             raise ValidationError("The blood request is no longer available.")
-        if accepted and not request.is_active:
+        if accepted and request.is_closed:
             raise ValidationError("This request has already been closed.")
+        if accepted and request.is_expired():
+            raise ValidationError("This blood request has expired.")
 
         notification.respond(accepted)
         self._notifications.save(notification)

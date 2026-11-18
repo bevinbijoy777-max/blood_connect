@@ -9,6 +9,7 @@ Blood group matching – every matching, available and currently eligible donor 
 Notifications and responses – donors accept or decline a request; accepting marks the request "Donor found" and sends the seeker the donor's contact number.
 Donor search – seekers can filter registered donors by blood group and city. Numbers stay private until a donor accepts.
 Donor profile – pause notifications, log a donation, and see the next eligible date (90 days after a donation).
+Request hygiene – a request stays open for three days and then reads as Expired, and one account can post at most three requests a day. The web app enforces the same two rules.
 The app only introduces people. Final donor eligibility and blood compatibility must always be confirmed by qualified medical staff.
 Download and run (no Python needed)
 Download BloodConnect.exe for Windows or BloodConnect.app for macOS, then open it.

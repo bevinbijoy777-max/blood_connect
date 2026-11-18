@@ -28,6 +28,9 @@ URGENCY_LEVELS = ("Normal", "Urgent", "Critical")
 DONATION_INTERVAL_DAYS = 90
 MIN_PASSWORD_LENGTH = 6
 MAX_UNITS_PER_REQUEST = 10
+# Both halves of Blood Connect enforce these; see app/src/validate.js.
+REQUEST_LIFETIME_DAYS = 3
+MAX_REQUESTS_PER_DAY = 3
 
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
 _PASSWORD_ITERATIONS = 120_000
@@ -419,26 +422,43 @@ class BloodRequest:
 
     @property
     def status_label(self) -> str:
-        return self._status.value
+        # Expiry is derived, so no stored row has to be rewritten to age it out.
+        return "Expired" if self.is_expired() and not self.is_closed else self._status.value
 
     @property
     def created_at(self) -> date:
         return self._created_at
 
     @property
+    def expires_on(self) -> date:
+        return self._created_at + timedelta(days=REQUEST_LIFETIME_DAYS)
+
+    def is_expired(self, on: date | None = None) -> bool:
+        """True from the day after REQUEST_LIFETIME_DAYS, like the web app."""
+        return (on or date.today()) >= self.expires_on
+
+    @property
+    def is_closed(self) -> bool:
+        return self._status not in (RequestStatus.OPEN, RequestStatus.MATCHED)
+
+    @property
     def is_active(self) -> bool:
-        return self._status in (RequestStatus.OPEN, RequestStatus.MATCHED)
+        return not self.is_closed and not self.is_expired()
 
     def mark_matched(self) -> None:
         if self._status is RequestStatus.OPEN:
             self._status = RequestStatus.MATCHED
 
     def mark_fulfilled(self) -> None:
+        if self.is_expired() and not self.is_closed:
+            raise ValidationError("This request has expired.")
         if not self.is_active:
             raise ValidationError("This request is already closed.")
         self._status = RequestStatus.FULFILLED
 
     def cancel(self) -> None:
+        if self.is_expired() and not self.is_closed:
+            raise ValidationError("This request has expired.")
         if not self.is_active:
             raise ValidationError("This request is already closed.")
         self._status = RequestStatus.CANCELLED

@@ -213,5 +213,38 @@ class NotificationTests(unittest.TestCase):
             self.make(NotificationKind.RESPONSE).respond(True)
 
 
+class RequestExpiryTests(unittest.TestCase):
+    """The same three-day lifetime the web app enforces."""
+
+    def test_a_new_request_is_active(self):
+        request = make_request()
+        self.assertFalse(request.is_expired())
+        self.assertTrue(request.is_active)
+        self.assertEqual(request.status_label, "Open")
+
+    def test_expiry_is_three_days_after_creation(self):
+        request = make_request(created_at=days_ago(1))
+        self.assertEqual(request.expires_on, TODAY + timedelta(days=2))
+        self.assertFalse(request.is_expired())
+
+    def test_a_request_expires_on_its_fourth_day(self):
+        request = make_request(created_at=days_ago(3))
+        self.assertTrue(request.is_expired())
+        self.assertFalse(request.is_active)
+        self.assertEqual(request.status_label, "Expired")
+
+    def test_an_expired_request_cannot_be_closed(self):
+        request = make_request(created_at=days_ago(3))
+        with self.assertRaises(ValidationError):
+            request.mark_fulfilled()
+        with self.assertRaises(ValidationError):
+            request.cancel()
+
+    def test_a_closed_request_keeps_its_own_status(self):
+        request = make_request(created_at=days_ago(10), status="Fulfilled")
+        self.assertEqual(request.status_label, "Fulfilled")
+        self.assertFalse(request.is_active)
+
+
 if __name__ == "__main__":
     unittest.main()

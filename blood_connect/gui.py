@@ -797,10 +797,11 @@ class DonorNotificationsTab(DashboardTab):
         self._messages = {}
         for notification, request in self.service.incoming_requests(self.person):
             self._messages[notification.id] = notification.message
+            expired = notification.is_pending and not request.is_active
             tag = ""
             if notification.is_accepted:
                 tag = "good"
-            elif not notification.is_pending:
+            elif not notification.is_pending or expired:
                 tag = "muted"
             self.table.tree.insert(
                 "", "end", iid=str(notification.id),
@@ -812,7 +813,7 @@ class DonorNotificationsTab(DashboardTab):
                     request.hospital,
                     request.city,
                     request.urgency,
-                    notification.response_label,
+                    "Expired" if expired else notification.response_label,
                 ),
                 tags=(tag,) if tag else (),
             )

@@ -12,7 +12,7 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 
-from blood_connect.database import Database
+from blood_connect.database import Database, RequestRepository
 from blood_connect.models import (
     AuthenticationError,
     Donor,
@@ -46,6 +46,13 @@ class ServiceTestCase(unittest.TestCase):
         last_donation=None,
     ):
         return self.service.register_donor(name, email, "9812345678", city, group, last_donation, "secret123")
+
+    def backdate_requests(self, days: int) -> None:
+        """Pretend every stored request was created ``days`` ago."""
+        self.database.connection.execute(
+            "UPDATE requests SET created_at = ?", (days_ago(days),)
+        )
+        self.database.connection.commit()
 
     def submit(self, seeker, **overrides):
         values = dict(
@@ -260,6 +267,90 @@ class ValidationTests(ServiceTestCase):
             self.submit(self.seeker, units=0, hospital="")
         self.assertEqual(self.service.my_requests(self.seeker), [])
         self.assertEqual(self.service.pending_notification_count(donor), 0)
+
+
+class RequestHygieneTests(ServiceTestCase):
+    """Three-day expiry and three requests a day, the same rules as the web app."""
+
+    def setUp(self):
+        super().setUp()
+        self.seeker = self.register_seeker()
+        self.donor = self.register_donor()
+
+    # -- expiry ------------------------------------------------------------
+    def test_a_two_day_old_request_is_still_open(self):
+        self.submit(self.seeker)
+        self.backdate_requests(2)
+        stored = self.service.my_requests(self.seeker)[0]
+        self.assertTrue(stored.is_active)
+        self.assertEqual(stored.status_label, "Open")
+        # Two days used, so it closes tomorrow.
+        self.assertEqual(stored.expires_on, date.today() + timedelta(days=1))
+
+    def test_a_three_day_old_request_has_expired(self):
+        self.submit(self.seeker)
+        self.backdate_requests(3)
+        stored = self.service.my_requests(self.seeker)[0]
+        self.assertFalse(stored.is_active)
+        self.assertTrue(stored.is_expired())
+        self.assertEqual(stored.status_label, "Expired")
+
+    def test_donor_cannot_accept_an_expired_request(self):
+        self.submit(self.seeker)
+        self.backdate_requests(3)
+        notification, request = self.service.incoming_requests(self.donor)[0]
+        self.assertEqual(request.status_label, "Expired")
+        with self.assertRaises(ValidationError) as error:
+            self.service.respond_to_notification(self.donor, notification.id, True)
+        self.assertIn("expired", str(error.exception))
+
+    def test_expired_requests_are_not_counted_as_waiting(self):
+        self.submit(self.seeker)
+        self.assertEqual(self.service.pending_notification_count(self.donor), 1)
+        self.backdate_requests(3)
+        self.assertEqual(self.service.pending_notification_count(self.donor), 0)
+
+    def test_seeker_cannot_close_an_expired_request(self):
+        request, _notified = self.submit(self.seeker)
+        self.backdate_requests(3)
+        with self.assertRaises(ValidationError) as error:
+            self.service.update_request_status(self.seeker, request.id, "cancel")
+        self.assertIn("expired", str(error.exception))
+
+    def test_open_requests_leave_out_expired_ones(self):
+        self.submit(self.seeker)
+        repository = RequestRepository(self.database)
+        self.assertEqual(len(repository.list_open()), 1)
+        self.backdate_requests(3)
+        self.assertEqual(repository.list_open(), [])
+
+    # -- daily cap ---------------------------------------------------------
+    def test_three_requests_a_day_are_allowed(self):
+        for _attempt in range(3):
+            self.submit(self.seeker)
+        self.assertEqual(len(self.service.my_requests(self.seeker)), 3)
+
+    def test_the_fourth_request_in_a_day_is_refused(self):
+        for _attempt in range(3):
+            self.submit(self.seeker)
+        with self.assertRaises(ValidationError) as error:
+            self.submit(self.seeker)
+        self.assertIn("3 requests a day", str(error.exception))
+        self.assertEqual(len(self.service.my_requests(self.seeker)), 3)
+
+    def test_the_cap_is_per_account(self):
+        for _attempt in range(3):
+            self.submit(self.seeker)
+        other = self.register_seeker(email="other@example.com", name="Other Seeker")
+        request, _notified = self.submit(other)
+        self.assertIsNotNone(request.id)
+
+    def test_a_new_day_brings_a_new_allowance(self):
+        for _attempt in range(3):
+            self.submit(self.seeker)
+        self.backdate_requests(1)
+        request, _notified = self.submit(self.seeker)
+        self.assertIsNotNone(request.id)
 
 
 if __name__ == "__main__":

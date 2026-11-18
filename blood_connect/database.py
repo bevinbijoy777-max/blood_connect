@@ -285,6 +285,14 @@ class RequestRepository:
         ).fetchall()
         return [self._row_to_request(row) for row in rows]
 
+    def count_created_on(self, requester_id: int, day: date) -> int:
+        """How many requests this account has already created on one day."""
+        row = self._db.connection.execute(
+            "SELECT COUNT(*) AS total FROM requests WHERE requester_id = ? AND created_at = ?",
+            (requester_id, day.isoformat()),
+        ).fetchone()
+        return int(row["total"])
+
     def list_open(self, blood_group: str | None = None) -> list[BloodRequest]:
         query = "SELECT * FROM requests WHERE status IN ('Open', 'Donor found')"
         params: list[str] = []
@@ -293,7 +301,12 @@ class RequestRepository:
             params.append(blood_group)
         query += " ORDER BY id DESC"
         rows = self._db.connection.execute(query, params).fetchall()
-        return [self._row_to_request(row) for row in rows]
+        # An expired request is no longer open for anybody to answer.
+        return [
+            request
+            for request in (self._row_to_request(row) for row in rows)
+            if request.is_active
+        ]
 
 
 class NotificationRepository:
@@ -375,12 +388,3 @@ class NotificationRepository:
         rows = self._db.connection.execute(query, params).fetchall()
         return [self._row_to_notification(row) for row in rows]
 
-    def count_pending(self, recipient_id: int) -> int:
-        row = self._db.connection.execute(
-            """
-            SELECT COUNT(*) AS total FROM notifications
-             WHERE recipient_id = ? AND kind = 'request' AND response = 'Pending'
-            """,
-            (recipient_id,),
-        ).fetchone()
-        return int(row["total"])
