@@ -296,6 +296,85 @@ async function run() {
   const nextDay = await capped.submitRequest("seeker-1", requestFor({ units: 1 }));
   check("a new day brings a new allowance", Boolean(nextDay.request.id));
 
+  console.log("reporting and blocking");
+  const guarding = makeService({ maxRequestsPerDay: 50 });
+  const neighbour = { sub: "donor-9", name: "Neha Patil", email: "neha@example.com" };
+  await guarding.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  await guarding.saveProfile(donor, {
+    role: "donor",
+    phone: "9812345678",
+    city: "Pune",
+    bloodGroup: "O+",
+  });
+  await guarding.saveProfile(neighbour, {
+    role: "donor",
+    phone: "9812345699",
+    city: "Pune",
+    bloodGroup: "O+",
+  });
+
+  const spam = await guarding.submitRequest("seeker-1", requestFor({ units: 1 }));
+  const guardInbox = await guarding.inbox("donor-1");
+  check("the matching donor is notified first", guardInbox.notifications.length === 1);
+  check("the neighbour got it too", (await guarding.inbox(neighbour.sub)).notifications.length === 1);
+
+  const reported = await guarding.reportRequest("donor-1", spam.request.id, "Looks fake");
+  check("a donor can report a request", reported.reported === true && reported.reason === "Looks fake");
+  await guarding.reportRequest("donor-1", spam.request.id, "Spam");
+  check("reporting twice keeps one record", guarding.reports.rows.size === 1, String(guarding.reports.rows.size));
+  check("the newest reason wins", [...guarding.reports.rows.values()][0].reason === "Spam");
+
+  let badReason = null;
+  try {
+    await guarding.reportRequest("donor-1", spam.request.id, "I just do not like it");
+  } catch (error) {
+    badReason = error;
+  }
+  check("an unknown reason is refused", badReason?.status === 400, String(badReason?.status));
+
+  let seekerReport = null;
+  try {
+    await guarding.reportRequest("seeker-1", spam.request.id, "Spam");
+  } catch (error) {
+    seekerReport = error;
+  }
+  check("a blood seeker cannot report requests", seekerReport?.status === 403, String(seekerReport?.status));
+
+  let strangerReport = null;
+  try {
+    await guarding.reportRequest(neighbour.sub, 9999, "Spam");
+  } catch (error) {
+    strangerReport = error;
+  }
+  check("a request you were never sent cannot be reported", strangerReport?.status === 404, String(strangerReport?.status));
+
+  let strangerBlock = null;
+  try {
+    await guarding.blockRequest(neighbour.sub, 9999);
+  } catch (error) {
+    strangerBlock = error;
+  }
+  check("a request you were never sent cannot be blocked", strangerBlock?.status === 404, String(strangerBlock?.status));
+
+  const blocked = await guarding.blockRequest("donor-1", spam.request.id);
+  check("a donor can block the account behind a request", blocked.blocked === true);
+  check("the blocked request leaves the inbox", (await guarding.inbox("donor-1")).notifications.length === 0);
+  const blockList = await guarding.blockedAccounts("donor-1");
+  check("the block list names the account", blockList[0]?.name === "Asha Rao", JSON.stringify(blockList));
+
+  const afterBlock = await guarding.submitRequest("seeker-1", requestFor({ units: 2 }));
+  check("the blocked donor is not notified again", (await guarding.inbox("donor-1")).notifications.length === 0);
+  check("nobody is pushed to on their behalf", !afterBlock.recipients.some((entry) => entry.sub === "donor-1"));
+  check("other donors still hear about the request", (await guarding.inbox(neighbour.sub)).notifications.length === 2);
+
+  await guarding.unblockAccount("donor-1", "seeker-1");
+  check("unblocking empties the block list", (await guarding.blockedAccounts("donor-1")).length === 0);
+  check(
+    "unblocking brings their requests back",
+    (await guarding.inbox("donor-1")).notifications.length === 1,
+    JSON.stringify((await guarding.inbox("donor-1")).notifications.length),
+  );
+
   finish();
 }
 

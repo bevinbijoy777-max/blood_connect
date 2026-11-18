@@ -6,7 +6,7 @@
  * id supplied by the client.
  */
 
-import { NotificationRepo, ProfileRepo, PushRepo, RequestRepo } from "./db.js";
+import { BlockRepo, NotificationRepo, ProfileRepo, PushRepo, ReportRepo, RequestRepo } from "./db.js";
 import {
   ApiError,
   cleanText,
@@ -17,6 +17,7 @@ import {
   normaliseBloodGroup,
   normalisePhone,
   normaliseRole,
+  normaliseReportReason,
   normaliseUnits,
   normaliseUrgency,
   parseDate,
@@ -109,6 +110,8 @@ export class BloodConnectService {
     this.requests = new RequestRepo(db);
     this.notifications = new NotificationRepo(db);
     this.push = new PushRepo(db);
+    this.reports = new ReportRepo(db);
+    this.blocks = new BlockRepo(db);
     // Overridable so tests can focus on other rules.
     this.maxRequestsPerDay = MAX_REQUESTS_PER_DAY;
   }
@@ -206,10 +209,12 @@ export class BloodConnectService {
     const message = request.note ? `${base} Note: ${request.note}` : base;
 
     const donors = await this.profiles.listDonors({ bloodGroup: request.blood_group });
+    // A donor who blocked this account hears nothing from it again.
+    const blocked = new Set(await this.blocks.donorSubsBlocking(requesterSub));
     let notified = 0;
     const recipients = [];
     for (const donor of donors) {
-      if (donor.sub === requesterSub) continue;
+      if (donor.sub === requesterSub || blocked.has(donor.sub)) continue;
       const { eligible } = eligibility(donor.last_donation);
       if (!donor.accepting_requests || !eligible) continue;
       await this.notifications.create({
@@ -320,10 +325,13 @@ export class BloodConnectService {
     const profile = await this.profiles.get(sub);
     if (!profile) return { notifications: [], pending: 0 };
     const rows = await this.notifications.listForRecipient(sub, "request");
+    const blocked = new Set(await this.blocks.blockedSubs(sub));
     const notifications = [];
     for (const row of rows) {
       const request = await this.requests.get(row.request_id);
-      if (request) notifications.push({ ...notificationToJson(row), request: requestToJson(request) });
+      // Blocked accounts disappear from the inbox, including older requests.
+      if (!request || blocked.has(request.requester_sub)) continue;
+      notifications.push({ ...notificationToJson(row), request: requestToJson(request) });
     }
     // A donor who can no longer answer is not counted as waiting.
     return {
@@ -390,5 +398,71 @@ export class BloodConnectService {
         patientName: request.patient_name,
       },
     };
+  }
+
+  // -- reporting and blocking ---------------------------------------------- //
+
+  /**
+   * The request behind one of this donor's inbox entries. Both actions below
+   * start here, so a signed-in account cannot use them to probe, or silence,
+   * a request it was never sent.
+   */
+  async requestFromInbox(sub, requestId) {
+    const request = await this.requests.get(Number(requestId));
+    if (!request) throw new ApiError("That blood request is no longer available.", 404);
+    const rows = await this.notifications.listForRecipient(sub, "request");
+    if (!rows.some((row) => row.request_id === request.id)) {
+      throw new ApiError("That blood request is not in your inbox.", 404);
+    }
+    return request;
+  }
+
+  async reportRequest(sub, requestId, reasonInput) {
+    const profile = await this.profiles.get(sub);
+    if (!profile || profile.role !== "donor") {
+      throw new ApiError("Only registered donors can report a request.", 403);
+    }
+    const request = await this.requestFromInbox(sub, requestId);
+    const reason = normaliseReportReason(reasonInput);
+    const saved = await this.reports.save({
+      request_id: request.id,
+      requester_sub: request.requester_sub,
+      reporter_sub: sub,
+      reason,
+      created_at: todayIso(),
+    });
+    return { reported: true, reason: saved?.reason ?? reason };
+  }
+
+  /**
+   * Stop hearing from the account that posted this request. Only this donor's
+   * inbox is affected, and the blocked account is not told.
+   */
+  async blockRequest(sub, requestId) {
+    const profile = await this.profiles.get(sub);
+    if (!profile || profile.role !== "donor") {
+      throw new ApiError("Only registered donors can block a request.", 403);
+    }
+    const request = await this.requestFromInbox(sub, requestId);
+    if (request.requester_sub === sub) throw new ApiError("You cannot block your own account.");
+    await this.blocks.block(sub, request.requester_sub, todayIso());
+    return { blocked: true };
+  }
+
+  async blockedAccounts(sub) {
+    const rows = await this.blocks.listForDonor(sub);
+    return rows.map((row) => ({
+      sub: row.blocked_sub,
+      name: row.name ?? "Blocked account",
+      city: row.city ?? null,
+      blockedAt: row.created_at,
+    }));
+  }
+
+  async unblockAccount(sub, blockedSub) {
+    const target = String(blockedSub ?? "").trim();
+    if (!target) throw new ApiError("Choose the account to unblock.");
+    await this.blocks.unblock(sub, target);
+    return { blocked: false };
   }
 }

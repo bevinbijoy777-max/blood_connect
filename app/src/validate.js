@@ -72,6 +72,17 @@ export function normaliseUrgency(value) {
   return urgency;
 }
 
+/** Why a donor is flagging a request. Kept short and fixed so reports group. */
+export const REPORT_REASONS = ["Looks fake", "Wrong details", "Spam", "Rude or abusive"];
+
+export function normaliseReportReason(value) {
+  const reason = String(value ?? "").trim();
+  if (!REPORT_REASONS.includes(reason)) {
+    throw new ApiError("Choose why you are reporting this request.");
+  }
+  return reason;
+}
+
 /**
  * A push subscription as the browser sends it: a push service URL plus the two
  * keys the message is encrypted for. The endpoint is a capability, so it is

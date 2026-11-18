@@ -346,6 +346,115 @@ async function run() {
   check("a fourth request in one day is 429", response.status === 429, `got ${response.status}`);
   check("the refusal explains the cap", /requests a day/i.test((await body(response))?.error ?? ""));
 
+  console.log("reporting and blocking");
+  const guarded = makeService({ maxRequestsPerDay: 50 });
+  await guarded.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  await guarded.saveProfile(donor, {
+    role: "donor",
+    phone: "9812345678",
+    city: "Pune",
+    bloodGroup: "O+",
+  });
+  const guardSeeker = { user: seeker, service: guarded };
+  const guardDonor = { user: donor, service: guarded };
+
+  response = await call("/api/requests", { method: "POST", body: validRequest }, guardSeeker);
+  const guardId = (await body(response))?.request?.id;
+  check("a request to report is created", response.status === 201, `got ${response.status}`);
+
+  response = await call(`/api/requests/${guardId}/report`, { method: "POST", body: { reason: "Spam" } }, {
+    user: null,
+    service: guarded,
+  });
+  check("reporting needs sign-in", response.status === 401, `got ${response.status}`);
+
+  response = await call(
+    `/api/requests/${guardId}/report`,
+    { method: "POST", body: { reason: "Spam" } },
+    { ...guardDonor, sameOrigin: false },
+  );
+  check("cross-origin reporting is 403", response.status === 403, `got ${response.status}`);
+
+  response = await call(
+    `/api/requests/${guardId}/report`,
+    { method: "POST", body: { reason: "Spam" } },
+    guardDonor,
+  );
+  check("a donor can report a request (201)", response.status === 201, `got ${response.status}`);
+  check("the report is acknowledged", (await body(response))?.reported === true);
+
+  response = await call(
+    `/api/requests/${guardId}/report`,
+    { method: "POST", body: { reason: "Because" } },
+    guardDonor,
+  );
+  check("an unknown report reason is 400", response.status === 400, `got ${response.status}`);
+
+  response = await call(
+    `/api/requests/${guardId}/report`,
+    { method: "POST", body: { reason: "Spam" } },
+    guardSeeker,
+  );
+  check("a blood seeker cannot report (403)", response.status === 403, `got ${response.status}`);
+
+  response = await call("/api/requests/999999/report", { method: "POST", body: { reason: "Spam" } }, guardDonor);
+  check("reporting an unknown request is 404", response.status === 404, `got ${response.status}`);
+
+  response = await call("/api/blocked", {}, { user: null, service: guarded });
+  check("the block list needs sign-in", response.status === 401, `got ${response.status}`);
+
+  response = await call("/api/blocked", {}, guardDonor);
+  check("the block list starts empty", (await body(response))?.blocked?.length === 0);
+
+  response = await call(`/api/requests/${guardId}/block`, { method: "POST", body: {} }, {
+    ...guardDonor,
+    sameOrigin: false,
+  });
+  check("cross-origin blocking is 403", response.status === 403, `got ${response.status}`);
+
+  response = await call(`/api/requests/${guardId}/block`, { method: "POST", body: {} }, guardDonor);
+  check("a donor can block a request (200)", response.status === 200, `got ${response.status}`);
+  check("the block is acknowledged", (await body(response))?.blocked === true);
+
+  response = await call("/api/inbox", {}, guardDonor);
+  check("the blocked request leaves the inbox", (await body(response))?.notifications?.length === 0);
+
+  response = await call("/api/blocked", {}, guardDonor);
+  const blockedList = (await body(response))?.blocked ?? [];
+  check("the block list shows one account", blockedList.length === 1, JSON.stringify(blockedList));
+  check("the block list names it", blockedList[0]?.name === "Asha Rao", blockedList[0]?.name);
+
+  let guardPush = null;
+  const guardedPost = await call(
+    "/api/requests",
+    { method: "POST", body: validRequest },
+    {
+      ...guardSeeker,
+      notifyDonors: async (recipients) => {
+        guardPush = recipients;
+      },
+    },
+  );
+  check("a blocked account's next request is still accepted", guardedPost.status === 201, `got ${guardedPost.status}`);
+  check(
+    "the blocked donor is not pushed to",
+    !(guardPush ?? []).some((entry) => entry.sub === "donor-1"),
+    JSON.stringify(guardPush),
+  );
+
+  response = await call("/api/blocked/unblock", { method: "POST", body: { sub: "seeker-1" } }, {
+    ...guardDonor,
+    sameOrigin: false,
+  });
+  check("cross-origin unblocking is 403", response.status === 403, `got ${response.status}`);
+
+  response = await call("/api/blocked/unblock", { method: "POST", body: { sub: "seeker-1" } }, guardDonor);
+  check("a donor can unblock (200)", response.status === 200, `got ${response.status}`);
+  check("the unblock is acknowledged", (await body(response))?.blocked === false);
+
+  response = await call("/api/blocked", {}, guardDonor);
+  check("the block list is empty again", (await body(response))?.blocked?.length === 0);
+
   finish();
 }
 

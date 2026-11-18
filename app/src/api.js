@@ -100,6 +100,17 @@ export async function routeApi(request, {
     return json({ request: { id: created.id, status: created.status }, notified }, 201);
   }
 
+  const requestReport = path.match(/^\/api\/requests\/(\d+)\/report$/);
+  if (requestReport && method === "POST") {
+    const { reason } = await readBody(request);
+    return json(await service.reportRequest(user.sub, Number(requestReport[1]), reason), 201);
+  }
+
+  const requestBlock = path.match(/^\/api\/requests\/(\d+)\/block$/);
+  if (requestBlock && method === "POST") {
+    return json(await service.blockRequest(user.sub, Number(requestBlock[1])));
+  }
+
   const requestAction = path.match(/^\/api\/requests\/(\d+)$/);
   if (requestAction && method === "POST") {
     const { action } = await readBody(request);
@@ -118,6 +129,15 @@ export async function routeApi(request, {
 
   if (path === "/api/inbox" && method === "GET") {
     return json(await service.inbox(user.sub));
+  }
+
+  if (path === "/api/blocked" && method === "GET") {
+    return json({ blocked: await service.blockedAccounts(user.sub) });
+  }
+
+  if (path === "/api/blocked/unblock" && method === "POST") {
+    const { sub } = await readBody(request);
+    return json(await service.unblockAccount(user.sub, sub));
   }
 
   const respond = path.match(/^\/api\/notifications\/(\d+)$/);

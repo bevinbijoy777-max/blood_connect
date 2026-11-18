@@ -50,7 +50,26 @@ export const STATEMENTS = [
   auth       TEXT NOT NULL,
   created_at TEXT NOT NULL
 )`,
+  // One report per donor per request; reporting again replaces the reason.
+  `CREATE TABLE IF NOT EXISTS request_reports (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id    INTEGER NOT NULL,
+  requester_sub TEXT NOT NULL,
+  reporter_sub  TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  UNIQUE(request_id, reporter_sub)
+)`,
+  // A donor's personal block list. The blocked account is never told.
+  `CREATE TABLE IF NOT EXISTS blocked_requesters (
+  donor_sub   TEXT NOT NULL,
+  blocked_sub TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (donor_sub, blocked_sub)
+)`,
   `CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requester_sub)`,
+  `CREATE INDEX IF NOT EXISTS idx_request_reports_requester ON request_reports(requester_sub)`,
+  `CREATE INDEX IF NOT EXISTS idx_blocked_requesters_blocked ON blocked_requesters(blocked_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)`,
   `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_sub ON push_subscriptions(sub)`,
@@ -295,6 +314,103 @@ export class PushRepo {
   /** Used when a push service reports the subscription is gone. */
   async removeByEndpoint(endpoint) {
     await this.db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(endpoint).run();
+  }
+}
+
+export class ReportRepo {
+  constructor(db) {
+    this.db = db;
+  }
+
+  /** Reporting the same request twice keeps one row and the newest reason. */
+  async save(report) {
+    await this.db
+      .prepare(
+        `INSERT INTO request_reports (request_id, requester_sub, reporter_sub, reason, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(request_id, reporter_sub) DO UPDATE SET
+           reason = excluded.reason,
+           created_at = excluded.created_at`,
+      )
+      .bind(
+        report.request_id,
+        report.requester_sub,
+        report.reporter_sub,
+        report.reason,
+        report.created_at,
+      )
+      .run();
+    const row = await this.db
+      .prepare("SELECT * FROM request_reports WHERE request_id = ? AND reporter_sub = ?")
+      .bind(report.request_id, report.reporter_sub)
+      .first();
+    return row ?? null;
+  }
+
+  /** Everything filed against one account, for whoever looks at reports. */
+  async listForRequester(requesterSub) {
+    const { results } = await this.db
+      .prepare("SELECT * FROM request_reports WHERE requester_sub = ? ORDER BY id DESC")
+      .bind(requesterSub)
+      .all();
+    return results ?? [];
+  }
+}
+
+export class BlockRepo {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async block(donorSub, blockedSub, createdAt) {
+    await this.db
+      .prepare(
+        `INSERT INTO blocked_requesters (donor_sub, blocked_sub, created_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(donor_sub, blocked_sub) DO UPDATE SET created_at = excluded.created_at`,
+      )
+      .bind(donorSub, blockedSub, createdAt)
+      .run();
+  }
+
+  async unblock(donorSub, blockedSub) {
+    await this.db
+      .prepare("DELETE FROM blocked_requesters WHERE donor_sub = ? AND blocked_sub = ?")
+      .bind(donorSub, blockedSub)
+      .run();
+  }
+
+  /** The accounts this donor no longer wants to hear from. */
+  async blockedSubs(donorSub) {
+    const { results } = await this.db
+      .prepare("SELECT blocked_sub FROM blocked_requesters WHERE donor_sub = ?")
+      .bind(donorSub)
+      .all();
+    return (results ?? []).map((row) => row.blocked_sub);
+  }
+
+  /** The donors who blocked one account, so nothing is sent to them. */
+  async donorSubsBlocking(blockedSub) {
+    const { results } = await this.db
+      .prepare("SELECT donor_sub FROM blocked_requesters WHERE blocked_sub = ?")
+      .bind(blockedSub)
+      .all();
+    return (results ?? []).map((row) => row.donor_sub);
+  }
+
+  /** The block list as the donor sees it, with the names they recognise. */
+  async listForDonor(donorSub) {
+    const { results } = await this.db
+      .prepare(
+        `SELECT b.blocked_sub, b.created_at, p.name, p.city
+           FROM blocked_requesters b
+           LEFT JOIN profiles p ON p.sub = b.blocked_sub
+          WHERE b.donor_sub = ?
+          ORDER BY b.created_at DESC, b.blocked_sub`,
+      )
+      .bind(donorSub)
+      .all();
+    return results ?? [];
   }
 }
 

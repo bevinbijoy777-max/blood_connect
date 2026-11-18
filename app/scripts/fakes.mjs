@@ -123,6 +123,62 @@ export class FakePush {
   }
 }
 
+export class FakeReports {
+  constructor() {
+    this.rows = new Map();
+  }
+  async save(report) {
+    const key = `${report.request_id}:${report.reporter_sub}`;
+    this.rows.set(key, { ...report });
+    return this.rows.get(key);
+  }
+  async listForRequester(requesterSub) {
+    return [...this.rows.values()].filter((row) => row.requester_sub === requesterSub);
+  }
+}
+
+export class FakeBlocks {
+  constructor(profiles) {
+    this.profiles = profiles;
+    this.rows = new Map();
+  }
+  async block(donorSub, blockedSub, createdAt) {
+    this.rows.set(`${donorSub}:${blockedSub}`, {
+      donor_sub: donorSub,
+      blocked_sub: blockedSub,
+      created_at: createdAt,
+    });
+  }
+  async unblock(donorSub, blockedSub) {
+    this.rows.delete(`${donorSub}:${blockedSub}`);
+  }
+  async blockedSubs(donorSub) {
+    return [...this.rows.values()]
+      .filter((row) => row.donor_sub === donorSub)
+      .map((row) => row.blocked_sub);
+  }
+  async donorSubsBlocking(blockedSub) {
+    return [...this.rows.values()]
+      .filter((row) => row.blocked_sub === blockedSub)
+      .map((row) => row.donor_sub);
+  }
+  /** Mirrors the JOIN in BlockRepo.listForDonor. */
+  async listForDonor(donorSub) {
+    const rows = [...this.rows.values()].filter((row) => row.donor_sub === donorSub);
+    return Promise.all(
+      rows.map(async (row) => {
+        const profile = await this.profiles.get(row.blocked_sub);
+        return {
+          blocked_sub: row.blocked_sub,
+          created_at: row.created_at,
+          name: profile?.name ?? null,
+          city: profile?.city ?? null,
+        };
+      }),
+    );
+  }
+}
+
 /** A real service backed by in-memory repositories. */
 export function makeService({ maxRequestsPerDay } = {}) {
   const service = new BloodConnectService(null);
@@ -130,6 +186,8 @@ export function makeService({ maxRequestsPerDay } = {}) {
   service.requests = new FakeRequests();
   service.notifications = new FakeNotifications(service.profiles);
   service.push = new FakePush();
+  service.reports = new FakeReports();
+  service.blocks = new FakeBlocks(service.profiles);
   if (maxRequestsPerDay) service.maxRequestsPerDay = maxRequestsPerDay;
   return service;
 }

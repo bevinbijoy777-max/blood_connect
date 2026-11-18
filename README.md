@@ -10,6 +10,8 @@ Notifications and responses – donors accept or decline a request; accepting ma
 Donor search – seekers can filter registered donors by blood group and city. Numbers stay private until a donor accepts.
 Donor profile – pause notifications, log a donation, and see the next eligible date (90 days after a donation).
 Request hygiene – a request stays open for three days and then reads as Expired, and one account can post at most three requests a day. The web app enforces the same two rules.
+
+Reporting and blocking – a donor can report a request (looks fake, wrong details, spam, rude or abusive) and block the account behind it; blocked accounts never reach that donor's inbox or devices again, and the block can be undone from the profile.
 The app only introduces people. Final donor eligibility and blood compatibility must always be confirmed by qualified medical staff.
 Download and run (no Python needed)
 Download BloodConnect.exe for Windows or BloodConnect.app for macOS, then open it.

@@ -6,6 +6,8 @@ const toastEl = document.getElementById("toast");
 
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const URGENCIES = ["Normal", "Urgent", "Critical"];
+// Same list as REPORT_REASONS in src/validate.js: the server rejects others.
+const REPORT_REASONS = ["Looks fake", "Wrong details", "Spam", "Rude or abusive"];
 
 const state = {
   user: null,
@@ -14,6 +16,7 @@ const state = {
   requests: [],
   donors: [],
   inbox: { notifications: [], pending: 0 },
+  blocked: [],
   showRequestForm: false,
   donorFilters: { group: "", city: "" },
   loading: true,
@@ -86,10 +89,11 @@ async function load() {
 
 async function refresh() {
   const tasks = [api("/api/requests")];
-  if (state.profile?.role === "donor") tasks.push(api("/api/inbox"));
-  const [requests, inbox] = await Promise.all(tasks);
+  if (state.profile?.role === "donor") tasks.push(api("/api/inbox"), api("/api/blocked"));
+  const [requests, inbox, blocked] = await Promise.all(tasks);
   state.requests = requests.requests ?? [];
   if (inbox) state.inbox = inbox;
+  if (blocked) state.blocked = blocked.blocked ?? [];
 }
 
 // -------------------------------------------------------------------- renders
@@ -504,6 +508,42 @@ function renderInbox() {
       }
     });
   });
+
+  app.querySelectorAll("button[data-report]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const requestId = button.dataset.report;
+      const reason = app.querySelector(`select[data-report-reason="${requestId}"]`)?.value;
+      button.disabled = true;
+      try {
+        await api(`/api/requests/${requestId}/report`, { method: "POST", body: { reason } });
+        toast("Report sent. Thank you — we will look at this request.");
+      } catch (error) {
+        toast(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
+  app.querySelectorAll("button[data-block]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const requestId = button.dataset.block;
+      const agreed = window.confirm(
+        "Block this account? Its requests will disappear from your inbox, and you can unblock it from your profile.",
+      );
+      if (!agreed) return;
+      button.disabled = true;
+      try {
+        await api(`/api/requests/${requestId}/block`, { method: "POST", body: {} });
+        toast("Blocked. You will not see requests from that account again.");
+        await refresh();
+        render();
+      } catch (error) {
+        toast(error.message, true);
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 function inboxCardHtml(notification) {
@@ -527,6 +567,14 @@ function inboxCardHtml(notification) {
              </div>`
           : `<p class="small tag ${notification.response === "Accepted" ? "ok" : "warn"}">You ${notification.response.toLowerCase()} this request</p>`
       }
+      <div class="row" style="margin-top:0.5rem;align-items:center">
+        <select data-report-reason="${request.id}" aria-label="Why are you reporting this request?"
+                style="flex:1;min-width:8rem;margin:0">
+          ${REPORT_REASONS.map((reason) => `<option>${esc(reason)}</option>`).join("")}
+        </select>
+        <button class="small" type="button" data-report="${request.id}">Report</button>
+        <button class="small danger" type="button" data-block="${request.id}">Block</button>
+      </div>
     </article>
   `;
 }
@@ -557,6 +605,24 @@ function renderProfile() {
              <p class="small muted">Last donation: ${profile.lastDonation ? esc(dateLabel(profile.lastDonation)) : "never"}.
                ${profile.nextEligible ? `Eligible again from ${esc(dateLabel(profile.nextEligible))}.` : ""}</p>
              <button class="small" id="log-donation" type="button">Log a donation today</button>
+           </div>`
+        : ""
+    }
+
+    ${
+      isDonor && state.blocked.length
+        ? `<div class="card stack">
+             <h2>Blocked accounts</h2>
+             <p class="small muted">Their requests no longer reach your inbox.</p>
+             ${state.blocked
+               .map(
+                 (account) => `
+               <div class="between">
+                 <span class="small">${esc(account.name)}${account.city ? ` · ${esc(account.city)}` : ""}</span>
+                 <button class="small" type="button" data-unblock="${esc(account.sub)}">Unblock</button>
+               </div>`,
+               )
+               .join("")}
            </div>`
         : ""
     }
@@ -638,6 +704,21 @@ function renderProfile() {
     } catch (error) {
       toast(error.message, true);
     }
+  });
+
+  app.querySelectorAll("button[data-unblock]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await api("/api/blocked/unblock", { method: "POST", body: { sub: button.dataset.unblock } });
+        toast("Unblocked. You may hear from that account again.");
+        await refresh();
+        render();
+      } catch (error) {
+        toast(error.message, true);
+        button.disabled = false;
+      }
+    });
   });
 }
 
