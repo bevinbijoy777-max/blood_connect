@@ -722,21 +722,13 @@ function renderNotifyCard() {
   card.querySelector("#disable-push")?.addEventListener("click", disablePush);
 }
 
-/** Both the promise form and old Safari's callback form. */
-function askNotificationPermission() {
-  return new Promise((resolve) => {
-    const result = Notification.requestPermission(resolve);
-    if (result && typeof result.then === "function") result.then(resolve);
-  });
-}
-
 async function enablePush() {
   if (!pushSupported) return;
 
   // Ask in the same task as the tap. Safari and Firefox throw away the user
   // activation the moment this handler awaits anything, and then refuse the
   // prompt outright, so nothing may be awaited before this call.
-  const permissionRequest = askNotificationPermission();
+  const permissionRequest = Notification.requestPermission();
 
   try {
     const permission = await permissionRequest;
@@ -810,13 +802,12 @@ navigator.serviceWorker?.addEventListener("message", async (event) => {
   if (event.data?.type !== "push-open") return;
   if (!state.user || !state.profile) return;
   state.tab = state.profile.role === "donor" ? "inbox" : "requests";
-  render();
   try {
     await refresh();
-    render();
   } catch {
-    // The rendered tab is still usable with what was already loaded.
+    // Draw whatever is already loaded rather than nothing.
   }
+  render();
 });
 
 // --------------------------------------------------------------------- start

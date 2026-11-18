@@ -129,7 +129,7 @@ export async function routeApi(request, {
       Boolean(accept),
     );
     // The seeker hears back even with the app closed; a failed push is silent.
-    if (accepted && notify && notifySeeker) {
+    if (notify && notifySeeker) {
       try {
         await notifySeeker(notify);
       } catch {
@@ -155,11 +155,12 @@ export async function routeApi(request, {
 }
 
 /**
- * Push one message to every device in the list, in parallel. A push service
- * that is down, or a subscription the browser has thrown away, only costs that
- * one notification; the in-app notification is already saved.
+ * Push one message to every device of the given users, in parallel. A push
+ * service that is down, or a subscription the browser has thrown away, only
+ * costs that one notification; the in-app notification is already saved.
  */
-async function sendToDevices(service, subscriptions, payload, config) {
+async function pushTo(service, subs, payload, config) {
+  const subscriptions = await service.pushSubscriptionsFor(subs);
   await Promise.allSettled(
     subscriptions.map(async (subscription) => {
       try {
@@ -171,20 +172,6 @@ async function sendToDevices(service, subscriptions, payload, config) {
       }
     }),
   );
-}
-
-/** A new request goes to every device of every matching donor. */
-async function deliverPushes(service, recipients, request, config) {
-  const subscriptions = await service.pushSubscriptionsFor(recipients.map((recipient) => recipient.sub));
-  if (!subscriptions.length) return;
-  await sendToDevices(service, subscriptions, requestPushPayload(request), config);
-}
-
-/** A donor accepting goes to every device of the seeker who asked. */
-async function deliverAcceptedPush(service, event, config) {
-  const subscriptions = await service.pushSubscriptionsFor([event.sub]);
-  if (!subscriptions.length) return;
-  await sendToDevices(service, subscriptions, acceptedPushPayload(event), config);
 }
 
 /** Runtime layer: session, schema, same-origin check and error mapping. */
@@ -203,10 +190,11 @@ export async function handleApi(request, env, { auth, isSameOriginRequest }) {
       // background, and the client hides the notification setting.
       pushPublicKey: config?.publicKey ?? null,
       notifyDonors: config
-        ? (recipients, created) => deliverPushes(service, recipients, created, config)
+        ? (recipients, created) =>
+            pushTo(service, recipients.map((recipient) => recipient.sub), requestPushPayload(created), config)
         : null,
       notifySeeker: config
-        ? (event) => deliverAcceptedPush(service, event, config)
+        ? (event) => pushTo(service, [event.sub], acceptedPushPayload(event), config)
         : null,
     });
   } catch (error) {

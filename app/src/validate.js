@@ -3,6 +3,8 @@
  * the web app accepts exactly what the desktop app accepts.
  */
 
+import { base64UrlToBytes } from "./push.js";
+
 export const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 export const URGENCIES = ["Normal", "Urgent", "Critical"];
 export const DONATION_INTERVAL_DAYS = 90;
@@ -76,17 +78,15 @@ export function parsePushSubscription(input) {
   if (!p256dh || !auth) throw new ApiError("The push subscription is missing its keys.");
 
   // Reject keys that cannot decrypt later, at the moment they are sent.
-  const decodesTo = (value, length) => {
+  const decodedLength = (value) => {
     try {
-      const normalised = value.replace(/-/g, "+").replace(/_/g, "/");
-      const padded = normalised + "=".repeat((4 - (normalised.length % 4)) % 4);
-      return atob(padded).length === length;
+      return base64UrlToBytes(value).length;
     } catch {
-      return false;
+      return 0;
     }
   };
-  if (!decodesTo(p256dh, 65)) throw new ApiError("The push key is not a P-256 public key.");
-  if (!decodesTo(auth, 16)) throw new ApiError("The push auth secret must be 16 bytes.");
+  if (decodedLength(p256dh) !== 65) throw new ApiError("The push key is not a P-256 public key.");
+  if (decodedLength(auth) !== 16) throw new ApiError("The push auth secret must be 16 bytes.");
 
   return { endpoint, p256dh, auth };
 }

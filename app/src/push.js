@@ -73,11 +73,11 @@ async function vapidSigningKey(config) {
 }
 
 /** `Authorization: vapid t=<jwt>,k=<public key>` for one push service origin. */
-export async function vapidAuthorization(endpoint, config, now = Date.now()) {
+export async function vapidAuthorization(endpoint, config) {
   const header = { typ: "JWT", alg: "ES256" };
   const claims = {
     aud: new URL(endpoint).origin,
-    exp: Math.floor(now / 1000) + TWELVE_HOURS,
+    exp: Math.floor(Date.now() / 1000) + TWELVE_HOURS,
     sub: config.subject,
   };
   const signingInput =
@@ -156,9 +156,9 @@ export async function encryptPayload(subscription, payload) {
  *   the subscription is dead (browser uninstalled, permission revoked) and the
  *   row should be deleted.
  */
-export async function sendPush(subscription, payload, config, { fetchImpl = fetch, now = Date.now() } = {}) {
+export async function sendPush(subscription, payload, config, { fetchImpl = fetch } = {}) {
   const body = await encryptPayload(subscription, payload);
-  const authorization = await vapidAuthorization(subscription.endpoint, config, now);
+  const authorization = await vapidAuthorization(subscription.endpoint, config);
   const response = await fetchImpl(subscription.endpoint, {
     method: "POST",
     headers: {
@@ -185,11 +185,9 @@ export function acceptedPushPayload(event) {
   return {
     title: `${event.donorName} can donate ${event.bloodGroup}`,
     body:
-      `${event.donorName} accepted your ${event.bloodGroup} request for ` +
-      `${event.patientName} in ${event.city}. Open Blood Connect to see their number.`,
-    url: "/",
+      `They accepted your ${event.bloodGroup} request for ${event.patientName} in ${event.city}. ` +
+      "Open Blood Connect to see their number.",
     tag: `response-${event.requestId}`,
-    requestId: event.requestId,
   };
 }
 
@@ -200,8 +198,6 @@ export function requestPushPayload(request) {
     body:
       `${request.urgency} request: ${request.units} unit(s) for ${request.patient_name} ` +
       `at ${request.hospital}. Tap to accept or decline.`,
-    url: "/",
     tag: `request-${request.id}`,
-    requestId: request.id,
   };
 }

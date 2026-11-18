@@ -34,9 +34,9 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("push", (event) => {
   let data = {};
   try {
-    data = event.data ? event.data.json() : {};
+    data = event.data?.json() ?? {};
   } catch {
-    data = { body: event.data ? event.data.text() : "" };
+    // A message that is not JSON still shows a notification.
   }
 
   event.waitUntil(
@@ -46,7 +46,7 @@ self.addEventListener("push", (event) => {
       badge: "/icon-192.png",
       tag: data.tag || "blood-request",
       renotify: true,
-      data: { url: data.url || "/" },
+      data: { url: "/" },
     }),
   );
 });
