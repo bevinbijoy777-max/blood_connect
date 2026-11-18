@@ -204,8 +204,12 @@ async function run() {
   response = await call("/api/push/subscribe", { method: "POST", body: device }, asDonor);
   check("a donor registers this device", response.status === 200 && (await body(response)).subscribed === true, `got ${response.status}`);
 
-  response = await call("/api/push/subscribe", { method: "POST", body: device }, asSeeker);
-  check("a blood seeker cannot register a device", response.status === 403, `got ${response.status}`);
+  response = await call(
+    "/api/push/subscribe",
+    { method: "POST", body: { ...device, endpoint: "https://push.example.test/send/api-seeker" } },
+    asSeeker,
+  );
+  check("a blood seeker registers a device too", response.status === 200, `got ${response.status}`);
 
   response = await call("/api/push/subscribe", { method: "POST", body: { endpoint: device.endpoint } }, asDonor);
   check("a subscription without keys is 400", response.status === 400, `got ${response.status}`);
@@ -239,6 +243,60 @@ async function run() {
     },
   });
   check("a failed push does not fail the request", response.status === 201, `got ${response.status}`);
+
+  console.log("hearing back from a donor");
+  let seekerPushed = null;
+  response = await call("/api/inbox", {}, asDonor);
+  const pendingId = (await body(response)).notifications.find((entry) => entry.isPending)?.id;
+  response = await call(
+    `/api/notifications/${pendingId}`,
+    { method: "POST", body: { accept: true } },
+    {
+      ...asDonor,
+      notifySeeker: async (event) => {
+        seekerPushed = event;
+      },
+    },
+  );
+  const acceptedBody = await body(response);
+  check("accepting is still 200", response.status === 200, `got ${response.status}`);
+  check("the seeker is the one pushed to", seekerPushed?.sub === "seeker-1", JSON.stringify(seekerPushed));
+  check("the seeker push names the donor", seekerPushed?.donorName === "Ravi Kumar");
+  check(
+    "the response keeps its shape",
+    Object.keys(acceptedBody).sort().join(",") === "accepted,message",
+    Object.keys(acceptedBody).join(","),
+  );
+
+  response = await call("/api/inbox", {}, asDonor);
+  const declineId = (await body(response)).notifications.find((entry) => entry.isPending)?.id;
+  let declinedPush = null;
+  response = await call(
+    `/api/notifications/${declineId}`,
+    { method: "POST", body: { accept: false } },
+    {
+      ...asDonor,
+      notifySeeker: async (event) => {
+        declinedPush = event;
+      },
+    },
+  );
+  check("declining pushes nobody", declinedPush === null);
+
+  await call("/api/requests", { method: "POST", body: { ...validRequest, units: 1 } }, asSeeker);
+  response = await call("/api/inbox", {}, asDonor);
+  const throwingId = (await body(response)).notifications.find((entry) => entry.isPending)?.id;
+  response = await call(
+    `/api/notifications/${throwingId}`,
+    { method: "POST", body: { accept: true } },
+    {
+      ...asDonor,
+      notifySeeker: async () => {
+        throw new Error("push service down");
+      },
+    },
+  );
+  check("a failed push does not fail the accept", response.status === 200, `got ${response.status}`);
 
   finish();
 }

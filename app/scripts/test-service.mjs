@@ -165,13 +165,16 @@ async function run() {
   check("a saved device belongs to its donor", (await service.pushSubscriptionsFor(["donor-1"]))[0]?.endpoint === endpoint);
   check("another donor's devices are not returned", (await service.pushSubscriptionsFor(["donor-2"])).length === 0);
 
-  let seekerBlocked = false;
+  let seekerDevice = true;
   try {
-    await service.savePushSubscription("seeker-1", { endpoint, keys });
-  } catch (error) {
-    seekerBlocked = error.status === 403;
+    await service.savePushSubscription("seeker-1", {
+      endpoint: "https://push.example.test/send/seeker-1",
+      keys,
+    });
+  } catch {
+    seekerDevice = false;
   }
-  check("a blood seeker cannot register a device", seekerBlocked);
+  check("a blood seeker can register a device too", seekerDevice);
 
   let noProfile = false;
   try {
@@ -210,6 +213,19 @@ async function run() {
   await service.savePushSubscription("donor-1", { endpoint, keys });
   await service.forgetPushEndpoint(endpoint);
   check("a dead endpoint is forgotten", (await service.pushSubscriptionsFor(["donor-1"])).length === 0);
+
+  console.log("hearing back from a donor");
+  const fresh = await service.submitRequest("seeker-1", requestFor({ units: 1 }));
+  const acceptId = (await service.inbox("donor-1")).notifications.find((entry) => entry.isPending).id;
+  const acceptedNow = await service.respond("donor-1", acceptId, true);
+  check("accepting names the seeker to notify", acceptedNow.notify?.sub === "seeker-1", JSON.stringify(acceptedNow.notify));
+  check("the seeker push names the donor", acceptedNow.notify?.donorName === "Ravi Kumar");
+  check("the seeker push carries the request", acceptedNow.notify?.requestId === fresh.request.id);
+
+  await service.submitRequest("seeker-1", requestFor({ units: 1 }));
+  const refusedId = (await service.inbox("donor-1")).notifications.find((entry) => entry.isPending).id;
+  const declinedNow = await service.respond("donor-1", refusedId, false);
+  check("declining asks for no push", declinedNow.notify === undefined);
 
   finish();
 }

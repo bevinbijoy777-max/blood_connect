@@ -5,7 +5,7 @@
  */
 
 import { ensureSchema } from "./db.js";
-import { pushConfig, requestPushPayload, sendPush } from "./push.js";
+import { acceptedPushPayload, pushConfig, requestPushPayload, sendPush } from "./push.js";
 import { BloodConnectService, profileToJson } from "./service.js";
 import { ApiError } from "./validate.js";
 
@@ -31,9 +31,17 @@ async function readBody(request) {
  * @param {{ user: {sub: string, name?: string, email?: string} | null,
  *           sameOrigin: boolean, service: BloodConnectService,
  *           pushPublicKey?: string | null,
- *           notifyDonors?: (recipients: {sub: string}[], request: object) => Promise<void> }} context
+ *           notifyDonors?: (recipients: {sub: string}[], request: object) => Promise<void>,
+ *           notifySeeker?: (event: {sub: string}) => Promise<void> }} context
  */
-export async function routeApi(request, { user, sameOrigin, service, pushPublicKey = null, notifyDonors = null }) {
+export async function routeApi(request, {
+  user,
+  sameOrigin,
+  service,
+  pushPublicKey = null,
+  notifyDonors = null,
+  notifySeeker = null,
+}) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/api";
   const method = request.method;
@@ -115,7 +123,20 @@ export async function routeApi(request, { user, sameOrigin, service, pushPublicK
   const respond = path.match(/^\/api\/notifications\/(\d+)$/);
   if (respond && method === "POST") {
     const { accept } = await readBody(request);
-    return json(await service.respond(user.sub, Number(respond[1]), Boolean(accept)));
+    const { accepted, message, notify } = await service.respond(
+      user.sub,
+      Number(respond[1]),
+      Boolean(accept),
+    );
+    // The seeker hears back even with the app closed; a failed push is silent.
+    if (accepted && notify && notifySeeker) {
+      try {
+        await notifySeeker(notify);
+      } catch {
+        // The in-app notification is already saved.
+      }
+    }
+    return json({ accepted, message });
   }
 
   // -- notification devices ----------------------------------------------- //
@@ -134,14 +155,11 @@ export async function routeApi(request, { user, sameOrigin, service, pushPublicK
 }
 
 /**
- * Push every device of every notified donor, in parallel. A push service that
- * is down, or a subscription the browser has thrown away, only costs that one
- * notification; the inbox entry is already saved.
+ * Push one message to every device in the list, in parallel. A push service
+ * that is down, or a subscription the browser has thrown away, only costs that
+ * one notification; the in-app notification is already saved.
  */
-async function deliverPushes(service, recipients, request, config) {
-  const subscriptions = await service.pushSubscriptionsFor(recipients.map((recipient) => recipient.sub));
-  if (!subscriptions.length) return;
-  const payload = requestPushPayload(request);
+async function sendToDevices(service, subscriptions, payload, config) {
   await Promise.allSettled(
     subscriptions.map(async (subscription) => {
       try {
@@ -153,6 +171,20 @@ async function deliverPushes(service, recipients, request, config) {
       }
     }),
   );
+}
+
+/** A new request goes to every device of every matching donor. */
+async function deliverPushes(service, recipients, request, config) {
+  const subscriptions = await service.pushSubscriptionsFor(recipients.map((recipient) => recipient.sub));
+  if (!subscriptions.length) return;
+  await sendToDevices(service, subscriptions, requestPushPayload(request), config);
+}
+
+/** A donor accepting goes to every device of the seeker who asked. */
+async function deliverAcceptedPush(service, event, config) {
+  const subscriptions = await service.pushSubscriptionsFor([event.sub]);
+  if (!subscriptions.length) return;
+  await sendToDevices(service, subscriptions, acceptedPushPayload(event), config);
 }
 
 /** Runtime layer: session, schema, same-origin check and error mapping. */
@@ -172,6 +204,9 @@ export async function handleApi(request, env, { auth, isSameOriginRequest }) {
       pushPublicKey: config?.publicKey ?? null,
       notifyDonors: config
         ? (recipients, created) => deliverPushes(service, recipients, created, config)
+        : null,
+      notifySeeker: config
+        ? (event) => deliverAcceptedPush(service, event, config)
         : null,
     });
   } catch (error) {

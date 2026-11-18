@@ -256,13 +256,14 @@ export class BloodConnectService {
 
   // -- push subscriptions -------------------------------------------------- //
 
-  /** Remember one device of the signed-in user, replacing its older keys. */
+  /**
+   * Remember one device of the signed-in user, replacing its older keys.
+   * Donors are told about matching requests, seekers when a donor accepts, so
+   * either role can register a device.
+   */
   async savePushSubscription(sub, input) {
     const profile = await this.profiles.get(sub);
     if (!profile) throw new ApiError("Create your profile first.", 409);
-    if (profile.role !== "donor") {
-      throw new ApiError("Only registered donors receive blood request notifications.", 403);
-    }
     const subscription = parsePushSubscription(input);
     return this.push.save(sub, { ...subscription, created_at: todayIso() });
   }
@@ -350,6 +351,16 @@ export class BloodConnectService {
       message:
         `Thank you, ${profile.name.split(" ")[0]}! ` +
         `${seeker ? seeker.name : "The seeker"} has your contact number and will call you.`,
+      // The caller pushes this to the seeker's devices. Nothing is returned
+      // when a donor declines: there is no good news to deliver.
+      notify: {
+        sub: request.requester_sub,
+        donorName: profile.name,
+        bloodGroup: profile.blood_group,
+        city: profile.city,
+        requestId: request.id,
+        patientName: request.patient_name,
+      },
     };
   }
 }

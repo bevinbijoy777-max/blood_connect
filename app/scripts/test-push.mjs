@@ -7,6 +7,7 @@
  */
 
 import {
+  acceptedPushPayload,
   base64UrlToBytes,
   bytesToBase64Url,
   encryptPayload,
@@ -119,6 +120,22 @@ async function run() {
   });
   check("the title names the group and city", payload.title === "O+ blood needed in Pune", payload.title);
   check("the body names the hospital", payload.body.includes("Ruby Hall"), payload.body);
+
+  const acceptedPush = acceptedPushPayload({
+    sub: "seeker-1",
+    donorName: "Ravi Kumar",
+    bloodGroup: "O+",
+    city: "Pune",
+    requestId: 9,
+    patientName: "Asha Rao",
+  });
+  check("an acceptance names the donor", acceptedPush.title.includes("Ravi Kumar"), acceptedPush.title);
+  check("an acceptance points at the request", acceptedPush.tag === "response-9", acceptedPush.tag);
+  check(
+    "an acceptance never carries a phone number",
+    !/\d{7,}/.test(`${acceptedPush.title} ${acceptedPush.body}`),
+    acceptedPush.body,
+  );
 
   const body = await encryptPayload(subscription, JSON.stringify(payload));
   check("the body carries salt, record size, key length and key", body.length > 16 + 4 + 1 + 65);

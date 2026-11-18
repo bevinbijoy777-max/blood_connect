@@ -72,7 +72,7 @@ async function load() {
     state.profile = data.profile;
     if (state.profile) await refresh();
     // Keeps an existing device subscription alive across sign-ins and resets.
-    if (state.profile?.role === "donor") syncPushSubscription();
+    if (state.profile) syncPushSubscription();
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -554,14 +554,10 @@ function renderProfile() {
         : ""
     }
 
-    ${
-      isDonor
-        ? `<div class="card stack" id="notify-card">
-             <h2>Notifications</h2>
-             <p class="small muted">Checking this device…</p>
-           </div>`
-        : ""
-    }
+    <div class="card stack" id="notify-card">
+      <h2>Notifications</h2>
+      <p class="small muted">Checking this device…</p>
+    </div>
 
     <details class="card">
       <summary>Edit my details</summary>
@@ -617,11 +613,9 @@ function renderProfile() {
     }
   });
 
-  if (isDonor) {
-    refreshPushState()
-      .then(renderNotifyCard)
-      .catch(() => {});
-  }
+  refreshPushState()
+    .then(renderNotifyCard)
+    .catch(() => {});
 
   document.getElementById("edit-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -711,7 +705,12 @@ function notifyCardHtml() {
     return `<p class="small tag ok">On for this device</p>
       <button class="small" id="disable-push" type="button">Turn off on this device</button>`;
   }
-  return `<p class="small muted">Get a notification when someone needs your blood group, even with the app closed.</p>
+  // Donors hear about new requests, seekers when a donor accepts.
+  const promise =
+    state.profile?.role === "donor"
+      ? "Get a notification when someone needs your blood group, even with the app closed."
+      : "Get a notification when a donor accepts your request, even with the app closed.";
+  return `<p class="small muted">${promise}</p>
     <button class="small primary" id="enable-push" type="button">Enable notifications</button>`;
 }
 
@@ -805,13 +804,19 @@ async function syncPushSubscription() {
   await api("/api/push/subscribe", { method: "POST", body: { endpoint, keys } }).catch(() => {});
 }
 
-// Tapping the notification brings an already-open app to the inbox.
-navigator.serviceWorker?.addEventListener("message", (event) => {
+// Tapping the notification opens the half of the app it is about: a donor's
+// inbox, or the seeker's own requests, freshly fetched.
+navigator.serviceWorker?.addEventListener("message", async (event) => {
   if (event.data?.type !== "push-open") return;
-  if (!state.user || !state.profile || state.profile.role !== "donor") return;
-  state.tab = "inbox";
+  if (!state.user || !state.profile) return;
+  state.tab = state.profile.role === "donor" ? "inbox" : "requests";
   render();
-  refreshInbox();
+  try {
+    await refresh();
+    render();
+  } catch {
+    // The rendered tab is still usable with what was already loaded.
+  }
 });
 
 // --------------------------------------------------------------------- start

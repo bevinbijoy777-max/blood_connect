@@ -176,6 +176,23 @@ export async function sendPush(subscription, payload, config, { fetchImpl = fetc
   return { ok: response.ok, gone: false, status: response.status };
 }
 
+/**
+ * The message a seeker sees when a donor accepts their request. The donor's
+ * phone number is deliberately left out: a push can land on a lock screen,
+ * and the number stays in the app.
+ */
+export function acceptedPushPayload(event) {
+  return {
+    title: `${event.donorName} can donate ${event.bloodGroup}`,
+    body:
+      `${event.donorName} accepted your ${event.bloodGroup} request for ` +
+      `${event.patientName} in ${event.city}. Open Blood Connect to see their number.`,
+    url: "/",
+    tag: `response-${event.requestId}`,
+    requestId: event.requestId,
+  };
+}
+
 /** The message a donor sees for one newly submitted request. */
 export function requestPushPayload(request) {
   return {

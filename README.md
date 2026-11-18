@@ -58,7 +58,7 @@ Publishing the web app to Freebuff Sites starts from the repository root: packag
 Add it to a phone's home screen with "Add to Home Screen" for a full-screen app, or install the Android app described below.
 
 Notifications (Web Push)
-A donor gets a real notification when a matching request arrives, even with the app closed. The browser subscribes through its own push service, the Worker stores each device in D1 (push_subscriptions) and signs the message with VAPID; the encryption lives in app/src/push.js, so there is no web-push dependency. Turn it on per device from Profile -> Notifications.
+Notifications work both ways: a donor gets one when a matching request arrives, and the seeker gets one when a donor accepts, each without the app being open. The browser subscribes through its own push service, the Worker stores each device in D1 (push_subscriptions) and signs the message with VAPID; the encryption lives in app/src/push.js, so there is no web-push dependency. Turn it on per device from Profile -> Notifications, on either side of the app. The notification for an acceptance deliberately leaves out the donor's phone number, because a push can appear on a lock screen; the app shows it.
 
 It needs three settings on the deployed Worker. Generate a pair once:
 
