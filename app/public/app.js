@@ -71,6 +71,8 @@ async function load() {
     state.user = data.user;
     state.profile = data.profile;
     if (state.profile) await refresh();
+    // Keeps an existing device subscription alive across sign-ins and resets.
+    if (state.profile?.role === "donor") syncPushSubscription();
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -552,6 +554,15 @@ function renderProfile() {
         : ""
     }
 
+    ${
+      isDonor
+        ? `<div class="card stack" id="notify-card">
+             <h2>Notifications</h2>
+             <p class="small muted">Checking this device…</p>
+           </div>`
+        : ""
+    }
+
     <details class="card">
       <summary>Edit my details</summary>
       <form class="stack" id="edit-form" style="margin-top:0.75rem">
@@ -606,6 +617,12 @@ function renderProfile() {
     }
   });
 
+  if (isDonor) {
+    refreshPushState()
+      .then(renderNotifyCard)
+      .catch(() => {});
+  }
+
   document.getElementById("edit-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
@@ -622,6 +639,180 @@ function renderProfile() {
     }
   });
 }
+
+// -------------------------------------------------------------- notifications
+// Web Push: the service worker shows a real notification when a matching
+// request arrives, so a donor does not have to have the app open. Without
+// VAPID keys on the server, the app falls back to the in-app inbox alone.
+const pushSupported =
+  "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const pushState = { available: null, permission: "default", subscribed: false };
+
+function pushKeyBytes(value) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function pushPublicKey() {
+  try {
+    const { publicKey } = await api("/api/push/key");
+    return publicKey ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function currentPushSubscription() {
+  if (!pushSupported) return null;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    return await registration.pushManager.getSubscription();
+  } catch {
+    return null;
+  }
+}
+
+/** A subscription is bound to one VAPID key; an old key must be replaced. */
+function hasKey(subscription, publicKey) {
+  const current = subscription?.options?.applicationServerKey;
+  if (!current) return false;
+  const bytes = new Uint8Array(current);
+  const expected = pushKeyBytes(publicKey);
+  return bytes.length === expected.length && bytes.every((byte, index) => byte === expected[index]);
+}
+
+async function refreshPushState() {
+  if (!pushSupported) {
+    pushState.available = false;
+    return;
+  }
+  pushState.permission = Notification.permission;
+  const publicKey = await pushPublicKey();
+  pushState.available = Boolean(publicKey);
+  const subscription = await currentPushSubscription();
+  // A subscription made with an older VAPID key no longer delivers, so it is
+  // not counted as on: the card offers to enable it again instead.
+  pushState.subscribed = Boolean(subscription && publicKey && hasKey(subscription, publicKey));
+}
+
+function notifyCardHtml() {
+  if (!pushSupported) {
+    return `<p class="small muted">${isIos() && !isInstalled() ? 'On iPhone, add Blood Connect to your Home Screen first, then turn notifications on.' : "This browser cannot show notifications."}</p>`;
+  }
+  if (pushState.available === false) {
+    return '<p class="small muted">Notifications are not available yet.</p>';
+  }
+  if (pushState.permission === "denied") {
+    return '<p class="small muted">Notifications are blocked for this site in your browser settings. Allow them there, then reload.</p>';
+  }
+  if (pushState.subscribed && pushState.permission === "granted") {
+    return `<p class="small tag ok">On for this device</p>
+      <button class="small" id="disable-push" type="button">Turn off on this device</button>`;
+  }
+  return `<p class="small muted">Get a notification when someone needs your blood group, even with the app closed.</p>
+    <button class="small primary" id="enable-push" type="button">Enable notifications</button>`;
+}
+
+function renderNotifyCard() {
+  const card = document.getElementById("notify-card");
+  if (!card) return;
+  card.innerHTML = `<h2>Notifications</h2>${notifyCardHtml()}`;
+  card.querySelector("#enable-push")?.addEventListener("click", enablePush);
+  card.querySelector("#disable-push")?.addEventListener("click", disablePush);
+}
+
+/** Both the promise form and old Safari's callback form. */
+function askNotificationPermission() {
+  return new Promise((resolve) => {
+    const result = Notification.requestPermission(resolve);
+    if (result && typeof result.then === "function") result.then(resolve);
+  });
+}
+
+async function enablePush() {
+  if (!pushSupported) return;
+
+  // Ask in the same task as the tap. Safari and Firefox throw away the user
+  // activation the moment this handler awaits anything, and then refuse the
+  // prompt outright, so nothing may be awaited before this call.
+  const permissionRequest = askNotificationPermission();
+
+  try {
+    const permission = await permissionRequest;
+    if (permission !== "granted") {
+      toast(
+        permission === "denied"
+          ? "Notifications are blocked in your browser settings."
+          : "Notifications need your permission.",
+        true,
+      );
+      return;
+    }
+
+    const publicKey = await pushPublicKey();
+    if (!publicKey) {
+      toast("Notifications are not available yet.", true);
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (subscription && !hasKey(subscription, publicKey)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    subscription ??= await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: pushKeyBytes(publicKey),
+    });
+
+    const { endpoint, keys } = subscription.toJSON();
+    await api("/api/push/subscribe", { method: "POST", body: { endpoint, keys } });
+    toast("Notifications on. We will tell you when someone needs your blood group.");
+  } catch (error) {
+    toast(error.message || "Could not turn on notifications.", true);
+  } finally {
+    await refreshPushState().catch(() => {});
+    renderNotifyCard();
+  }
+}
+
+async function disablePush() {
+  try {
+    const subscription = await currentPushSubscription();
+    if (subscription) {
+      await api("/api/push/unsubscribe", {
+        method: "POST",
+        body: { endpoint: subscription.endpoint },
+      }).catch(() => {});
+      await subscription.unsubscribe().catch(() => {});
+    }
+    toast("Notifications are off on this device.");
+  } finally {
+    await refreshPushState().catch(() => {});
+    renderNotifyCard();
+  }
+}
+
+async function syncPushSubscription() {
+  if (!pushSupported || Notification.permission !== "granted") return;
+  const subscription = await currentPushSubscription();
+  const publicKey = await pushPublicKey();
+  if (!subscription || !publicKey || !hasKey(subscription, publicKey)) return;
+  const { endpoint, keys } = subscription.toJSON();
+  await api("/api/push/subscribe", { method: "POST", body: { endpoint, keys } }).catch(() => {});
+}
+
+// Tapping the notification brings an already-open app to the inbox.
+navigator.serviceWorker?.addEventListener("message", (event) => {
+  if (event.data?.type !== "push-open") return;
+  if (!state.user || !state.profile || state.profile.role !== "donor") return;
+  state.tab = "inbox";
+  render();
+  refreshInbox();
+});
 
 // --------------------------------------------------------------------- start
 load();

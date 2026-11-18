@@ -5,6 +5,7 @@
  */
 
 import { ensureSchema } from "./db.js";
+import { pushConfig, requestPushPayload, sendPush } from "./push.js";
 import { BloodConnectService, profileToJson } from "./service.js";
 import { ApiError } from "./validate.js";
 
@@ -28,9 +29,11 @@ async function readBody(request) {
 /**
  * @param {Request} request
  * @param {{ user: {sub: string, name?: string, email?: string} | null,
- *           sameOrigin: boolean, service: BloodConnectService }} context
+ *           sameOrigin: boolean, service: BloodConnectService,
+ *           pushPublicKey?: string | null,
+ *           notifyDonors?: (recipients: {sub: string}[], request: object) => Promise<void> }} context
  */
-export async function routeApi(request, { user, sameOrigin, service }) {
+export async function routeApi(request, { user, sameOrigin, service, pushPublicKey = null, notifyDonors = null }) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/api";
   const method = request.method;
@@ -47,6 +50,12 @@ export async function routeApi(request, { user, sameOrigin, service }) {
       user: { name: user.name ?? null, email: user.email ?? null },
       profile: profileToJson(profile),
     });
+  }
+
+  // -- push notifications -------------------------------------------------- //
+  // The VAPID public key is public by design: browsers need it to subscribe.
+  if (path === "/api/push/key" && method === "GET") {
+    return json({ publicKey: pushPublicKey });
   }
 
   // Everything below needs a signed-in user.
@@ -68,7 +77,18 @@ export async function routeApi(request, { user, sameOrigin, service }) {
   }
 
   if (path === "/api/requests" && method === "POST") {
-    const { request: created, notified } = await service.submitRequest(user.sub, await readBody(request));
+    const { request: created, notified, recipients } = await service.submitRequest(
+      user.sub,
+      await readBody(request),
+    );
+    // A push that fails must never fail the request that was already saved.
+    if (notifyDonors && recipients.length) {
+      try {
+        await notifyDonors(recipients, created);
+      } catch {
+        // Delivery is best effort; the donor still sees it in the inbox.
+      }
+    }
     return json({ request: { id: created.id, status: created.status }, notified }, 201);
   }
 
@@ -98,7 +118,41 @@ export async function routeApi(request, { user, sameOrigin, service }) {
     return json(await service.respond(user.sub, Number(respond[1]), Boolean(accept)));
   }
 
+  // -- notification devices ----------------------------------------------- //
+  if (path === "/api/push/subscribe" && method === "POST") {
+    await service.savePushSubscription(user.sub, await readBody(request));
+    return json({ subscribed: true });
+  }
+
+  if (path === "/api/push/unsubscribe" && method === "POST") {
+    const { endpoint } = await readBody(request);
+    await service.removePushSubscription(user.sub, endpoint);
+    return json({ subscribed: false });
+  }
+
   return json({ error: "Not found." }, 404);
+}
+
+/**
+ * Push every device of every notified donor, in parallel. A push service that
+ * is down, or a subscription the browser has thrown away, only costs that one
+ * notification; the inbox entry is already saved.
+ */
+async function deliverPushes(service, recipients, request, config) {
+  const subscriptions = await service.pushSubscriptionsFor(recipients.map((recipient) => recipient.sub));
+  if (!subscriptions.length) return;
+  const payload = requestPushPayload(request);
+  await Promise.allSettled(
+    subscriptions.map(async (subscription) => {
+      try {
+        const result = await sendPush(subscription, payload, config);
+        if (result.gone) await service.forgetPushEndpoint(subscription.endpoint);
+        else if (!result.ok) console.error("Push rejected with status", result.status);
+      } catch (error) {
+        console.error("Push delivery failed:", error?.message ?? error);
+      }
+    }),
+  );
 }
 
 /** Runtime layer: session, schema, same-origin check and error mapping. */
@@ -106,11 +160,19 @@ export async function handleApi(request, env, { auth, isSameOriginRequest }) {
   try {
     await ensureSchema(env.DB);
     const user = await auth.getUser(request);
+    const service = new BloodConnectService(env.DB);
+    const config = pushConfig(env);
     const isWrite = request.method !== "GET" && request.method !== "HEAD";
     return await routeApi(request, {
       user,
       sameOrigin: !isWrite || isSameOriginRequest(request, env.APP_ORIGIN),
-      service: new BloodConnectService(env.DB),
+      service,
+      // Without VAPID keys the app still works; it just cannot push in the
+      // background, and the client hides the notification setting.
+      pushPublicKey: config?.publicKey ?? null,
+      notifyDonors: config
+        ? (recipients, created) => deliverPushes(service, recipients, created, config)
+        : null,
     });
   } catch (error) {
     return errorResponse(error);

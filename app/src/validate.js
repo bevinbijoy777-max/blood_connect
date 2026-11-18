@@ -54,6 +54,43 @@ export function normaliseUrgency(value) {
   return urgency;
 }
 
+/**
+ * A push subscription as the browser sends it: a push service URL plus the two
+ * keys the message is encrypted for. The endpoint is a capability, so it is
+ * only ever stored against the signed-in user who sent it.
+ */
+export function parsePushSubscription(input) {
+  const endpoint = String(input?.endpoint ?? "").trim();
+  if (!endpoint) throw new ApiError("A push subscription needs an endpoint.");
+  if (endpoint.length > 1000) throw new ApiError("That push endpoint is too long.");
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new ApiError("That push endpoint is not a valid URL.");
+  }
+  if (url.protocol !== "https:") throw new ApiError("A push endpoint must be https.");
+
+  const p256dh = String(input?.keys?.p256dh ?? "").trim();
+  const auth = String(input?.keys?.auth ?? "").trim();
+  if (!p256dh || !auth) throw new ApiError("The push subscription is missing its keys.");
+
+  // Reject keys that cannot decrypt later, at the moment they are sent.
+  const decodesTo = (value, length) => {
+    try {
+      const normalised = value.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = normalised + "=".repeat((4 - (normalised.length % 4)) % 4);
+      return atob(padded).length === length;
+    } catch {
+      return false;
+    }
+  };
+  if (!decodesTo(p256dh, 65)) throw new ApiError("The push key is not a P-256 public key.");
+  if (!decodesTo(auth, 16)) throw new ApiError("The push auth secret must be 16 bytes.");
+
+  return { endpoint, p256dh, auth };
+}
+
 export function normaliseRole(value) {
   const role = String(value ?? "").trim();
   if (role !== "seeker" && role !== "donor") throw new ApiError("Choose a role.");

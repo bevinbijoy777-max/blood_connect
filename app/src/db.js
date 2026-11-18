@@ -41,9 +41,19 @@ export const STATEMENTS = [
   response      TEXT NOT NULL DEFAULT 'Pending',
   created_at    TEXT NOT NULL
 )`,
+  // One row per browser/device. The endpoint is the push service's URL and is
+  // unique, so a device that signs in as somebody else moves to that account.
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint   TEXT PRIMARY KEY,
+  sub        TEXT NOT NULL,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)`,
   `CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requester_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)`,
+  `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_sub ON push_subscriptions(sub)`,
 ];
 
 let schemaReady = false;
@@ -221,6 +231,61 @@ export class NotificationRepo {
       .prepare("UPDATE notifications SET response = ? WHERE id = ?")
       .bind(response, id)
       .run();
+  }
+}
+
+export class PushRepo {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async save(sub, subscription) {
+    await this.db
+      .prepare(
+        `INSERT INTO push_subscriptions (endpoint, sub, p256dh, auth, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(endpoint) DO UPDATE SET
+           sub = excluded.sub,
+           p256dh = excluded.p256dh,
+           auth = excluded.auth,
+           created_at = excluded.created_at`,
+      )
+      .bind(
+        subscription.endpoint,
+        sub,
+        subscription.p256dh,
+        subscription.auth,
+        subscription.created_at,
+      )
+      .run();
+    return this.get(subscription.endpoint);
+  }
+
+  async get(endpoint) {
+    return this.db.prepare("SELECT * FROM push_subscriptions WHERE endpoint = ?").bind(endpoint).first();
+  }
+
+  async listForSubs(subs) {
+    if (!subs.length) return [];
+    const placeholders = subs.map(() => "?").join(", ");
+    const { results } = await this.db
+      .prepare(`SELECT * FROM push_subscriptions WHERE sub IN (${placeholders})`)
+      .bind(...subs)
+      .all();
+    return results ?? [];
+  }
+
+  /** Only the signed-in owner may remove a device. */
+  async remove(sub, endpoint) {
+    await this.db
+      .prepare("DELETE FROM push_subscriptions WHERE endpoint = ? AND sub = ?")
+      .bind(endpoint, sub)
+      .run();
+  }
+
+  /** Used when a push service reports the subscription is gone. */
+  async removeByEndpoint(endpoint) {
+    await this.db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(endpoint).run();
   }
 }
 

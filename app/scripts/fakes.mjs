@@ -96,12 +96,36 @@ export class FakeNotifications {
   }
 }
 
+export class FakePush {
+  constructor() {
+    this.rows = new Map();
+  }
+  async save(sub, subscription) {
+    this.rows.set(subscription.endpoint, { ...subscription, sub });
+    return this.get(subscription.endpoint);
+  }
+  async get(endpoint) {
+    return this.rows.get(endpoint) ?? null;
+  }
+  async listForSubs(subs) {
+    return [...this.rows.values()].filter((row) => subs.includes(row.sub));
+  }
+  async remove(sub, endpoint) {
+    const row = this.rows.get(endpoint);
+    if (row && row.sub === sub) this.rows.delete(endpoint);
+  }
+  async removeByEndpoint(endpoint) {
+    this.rows.delete(endpoint);
+  }
+}
+
 /** A real service backed by in-memory repositories. */
 export function makeService() {
   const service = new BloodConnectService(null);
   service.profiles = new FakeProfiles();
   service.requests = new FakeRequests();
   service.notifications = new FakeNotifications(service.profiles);
+  service.push = new FakePush();
   return service;
 }
 

@@ -38,9 +38,9 @@ function makeRequest(path, { method = "GET", body, rawBody } = {}) {
 
 /** Call a route the way the Worker would, mapping thrown ApiErrors like it does. */
 async function call(path, options = {}, context = {}) {
-  const { user = null, sameOrigin = true, service } = context;
+  const { user = null, sameOrigin = true, service, ...extra } = context;
   try {
-    return await routeApi(makeRequest(path, options), { user, sameOrigin, service });
+    return await routeApi(makeRequest(path, options), { user, sameOrigin, service, ...extra });
   } catch (error) {
     return errorResponse(error);
   }
@@ -180,6 +180,65 @@ async function run() {
   const me = await body(response);
   check("GET /api/me returns the profile", me?.profile?.role === "seeker");
   check("personalized responses are not cacheable", response.headers.get("Cache-Control") === "private, no-store");
+
+  console.log("notification devices");
+  const device = {
+    endpoint: "https://push.example.test/send/api-donor",
+    keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) },
+  };
+  const publicKey = "B".repeat(87);
+
+  response = await call("/api/push/key", {}, signedOut);
+  check("GET /api/push/key is readable without signing in", response.status === 200, `got ${response.status}`);
+  check("no configured key is reported as null", (await body(response)).publicKey === null);
+
+  response = await call("/api/push/key", {}, { ...asDonor, pushPublicKey: publicKey });
+  check("the configured key is handed to the browser", (await body(response)).publicKey === publicKey);
+
+  response = await call("/api/push/subscribe", { method: "POST", body: device }, signedOut);
+  check("POST /api/push/subscribe needs sign-in", response.status === 401, `got ${response.status}`);
+
+  response = await call("/api/push/subscribe", { method: "POST", body: device }, { ...asDonor, sameOrigin: false });
+  check("cross-origin subscribe is 403", response.status === 403, `got ${response.status}`);
+
+  response = await call("/api/push/subscribe", { method: "POST", body: device }, asDonor);
+  check("a donor registers this device", response.status === 200 && (await body(response)).subscribed === true, `got ${response.status}`);
+
+  response = await call("/api/push/subscribe", { method: "POST", body: device }, asSeeker);
+  check("a blood seeker cannot register a device", response.status === 403, `got ${response.status}`);
+
+  response = await call("/api/push/subscribe", { method: "POST", body: { endpoint: device.endpoint } }, asDonor);
+  check("a subscription without keys is 400", response.status === 400, `got ${response.status}`);
+
+  response = await call("/api/push/unsubscribe", { method: "POST", body: device }, { ...asDonor, sameOrigin: false });
+  check("cross-origin unsubscribe is 403", response.status === 403, `got ${response.status}`);
+
+  response = await call("/api/push/unsubscribe", { method: "POST", body: { endpoint: device.endpoint } }, asDonor);
+  check("a donor turns the device off", response.status === 200 && (await body(response)).subscribed === false);
+
+  console.log("pushing a new request");
+  let pushed = null;
+  response = await call(
+    "/api/requests",
+    { method: "POST", body: { ...validRequest, units: 1 } },
+    {
+      ...asSeeker,
+      notifyDonors: async (recipients, created) => {
+        pushed = { recipients, id: created.id, city: created.city };
+      },
+    },
+  );
+  check("a new request still returns 201", response.status === 201, `got ${response.status}`);
+  check("the notified donor is pushed to", pushed?.recipients?.map((entry) => entry.sub).includes("donor-1") === true);
+  check("the push carries the saved request", pushed?.id > 0 && pushed?.city === "Pune");
+
+  response = await call("/api/requests", { method: "POST", body: validRequest }, {
+    ...asSeeker,
+    notifyDonors: async () => {
+      throw new Error("push service down");
+    },
+  });
+  check("a failed push does not fail the request", response.status === 201, `got ${response.status}`);
 
   finish();
 }

@@ -6,7 +6,7 @@
  * id supplied by the client.
  */
 
-import { NotificationRepo, ProfileRepo, RequestRepo } from "./db.js";
+import { NotificationRepo, ProfileRepo, PushRepo, RequestRepo } from "./db.js";
 import {
   ApiError,
   cleanText,
@@ -18,6 +18,7 @@ import {
   normaliseUrgency,
   parseDate,
   parseOptionalDate,
+  parsePushSubscription,
   todayIso,
 } from "./validate.js";
 
@@ -100,6 +101,7 @@ export class BloodConnectService {
     this.profiles = new ProfileRepo(db);
     this.requests = new RequestRepo(db);
     this.notifications = new NotificationRepo(db);
+    this.push = new PushRepo(db);
   }
 
   // -- profile ------------------------------------------------------------ //
@@ -175,8 +177,8 @@ export class BloodConnectService {
       created_at: todayIso(),
     };
     const saved = await this.requests.create(request);
-    const notified = await this.notifyMatchingDonors(saved, sub);
-    return { request: saved, notified };
+    const { notified, recipients } = await this.notifyMatchingDonors(saved, sub);
+    return { request: saved, notified, recipients };
   }
 
   async notifyMatchingDonors(request, requesterSub) {
@@ -187,6 +189,7 @@ export class BloodConnectService {
 
     const donors = await this.profiles.listDonors({ bloodGroup: request.blood_group });
     let notified = 0;
+    const recipients = [];
     for (const donor of donors) {
       if (donor.sub === requesterSub) continue;
       const { eligible } = eligibility(donor.last_donation);
@@ -201,8 +204,10 @@ export class BloodConnectService {
         created_at: todayIso(),
       });
       notified += 1;
+      // The caller uses this to push a real notification to their devices.
+      recipients.push({ sub: donor.sub, name: donor.name });
     }
-    return notified;
+    return { notified, recipients };
   }
 
   async myRequests(sub) {
@@ -247,6 +252,34 @@ export class BloodConnectService {
     if (!status) throw new ApiError("Unknown action for this request.");
     await this.requests.setStatus(request.id, status);
     return this.requests.get(request.id);
+  }
+
+  // -- push subscriptions -------------------------------------------------- //
+
+  /** Remember one device of the signed-in user, replacing its older keys. */
+  async savePushSubscription(sub, input) {
+    const profile = await this.profiles.get(sub);
+    if (!profile) throw new ApiError("Create your profile first.", 409);
+    if (profile.role !== "donor") {
+      throw new ApiError("Only registered donors receive blood request notifications.", 403);
+    }
+    const subscription = parsePushSubscription(input);
+    return this.push.save(sub, { ...subscription, created_at: todayIso() });
+  }
+
+  async removePushSubscription(sub, endpoint) {
+    const target = String(endpoint ?? "").trim();
+    if (!target) throw new ApiError("A push subscription needs an endpoint.");
+    await this.push.remove(sub, target);
+  }
+
+  /** Every device of the given users; the caller encrypts once per device. */
+  async pushSubscriptionsFor(subs) {
+    return this.push.listForSubs(subs);
+  }
+
+  async forgetPushEndpoint(endpoint) {
+    await this.push.removeByEndpoint(endpoint);
   }
 
   // -- donors and inbox --------------------------------------------------- //

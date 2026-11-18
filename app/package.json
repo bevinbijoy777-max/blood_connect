@@ -7,7 +7,7 @@
   "scripts": {
     "build": "esbuild src/worker.js --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/worker.js && node scripts/copy-assets.mjs",
     "dev": "wrangler dev --config wrangler.local.jsonc --port 8787",
-    "test": "node scripts/test-service.mjs && node scripts/test-api.mjs"
+    "test": "node scripts/test-service.mjs && node scripts/test-api.mjs && node scripts/test-push.mjs"
   },
   "dependencies": {
     "@freebuff/auth": "^0.1.0"

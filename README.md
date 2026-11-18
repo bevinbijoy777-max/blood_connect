@@ -57,6 +57,21 @@ Publishing the web app to Freebuff Sites starts from the repository root: packag
 
 Add it to a phone's home screen with "Add to Home Screen" for a full-screen app, or install the Android app described below.
 
+Notifications (Web Push)
+A donor gets a real notification when a matching request arrives, even with the app closed. The browser subscribes through its own push service, the Worker stores each device in D1 (push_subscriptions) and signs the message with VAPID; the encryption lives in app/src/push.js, so there is no web-push dependency. Turn it on per device from Profile -> Notifications.
+
+It needs three settings on the deployed Worker. Generate a pair once:
+
+npx web-push generate-vapid-keys --json
+
+then add these in Sites -> Secrets (or the equivalent variables for another host):
+
+VAPID_PUBLIC_KEY    the "publicKey" it prints (87 characters, a P-256 point)
+VAPID_PRIVATE_KEY   the "privateKey" it prints (43 characters)
+VAPID_SUBJECT       a contact for push services, e.g. mailto:you@example.com
+
+Deploy again after setting them; secrets are bound at deployment. Without these three the app still works and falls back to the inbox refresh while it is open, and the notification switch stays hidden. Keep the keys: a subscription is tied to the public key, so replacing it means each device has to turn notifications on again from Profile.
+
 Android app (.apk)
 android/ wraps the live web app in a single-screen WebView, so Android users install one file instead of finding "Add to Home Screen" in their browser. The built APK is served at /BloodConnect.apk from the web app, and the landing page downloads it from there. It needs Android 7 (API 24) or newer and an internet connection; sign-in is the same Freebuff account as the web app.
 

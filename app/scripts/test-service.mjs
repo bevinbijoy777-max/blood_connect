@@ -157,6 +157,60 @@ async function run() {
   }
   check("future donation date rejected", futureDateBlocked);
 
+  console.log("notification devices");
+  const endpoint = "https://push.example.test/send/donor-1";
+  const keys = { p256dh: "B".repeat(87), auth: "A".repeat(22) };
+
+  await service.savePushSubscription("donor-1", { endpoint, keys });
+  check("a saved device belongs to its donor", (await service.pushSubscriptionsFor(["donor-1"]))[0]?.endpoint === endpoint);
+  check("another donor's devices are not returned", (await service.pushSubscriptionsFor(["donor-2"])).length === 0);
+
+  let seekerBlocked = false;
+  try {
+    await service.savePushSubscription("seeker-1", { endpoint, keys });
+  } catch (error) {
+    seekerBlocked = error.status === 403;
+  }
+  check("a blood seeker cannot register a device", seekerBlocked);
+
+  let noProfile = false;
+  try {
+    await service.savePushSubscription("ghost", { endpoint, keys });
+  } catch (error) {
+    noProfile = error.status === 409;
+  }
+  check("a device needs a profile first", noProfile);
+
+  for (const [label, bad, pattern] of [
+    ["an http endpoint", { endpoint: "http://push.example.test/x", keys }, /https/i],
+    ["a missing endpoint", { keys }, /endpoint/i],
+    ["missing keys", { endpoint }, /keys/i],
+    ["a short public key", { endpoint, keys: { p256dh: "AAAA", auth: keys.auth } }, /P-256/],
+    ["a short auth secret", { endpoint, keys: { p256dh: keys.p256dh, auth: "AAAA" } }, /16 bytes/],
+  ]) {
+    let blocked = false;
+    try {
+      await service.savePushSubscription("donor-1", bad);
+    } catch (error) {
+      blocked = pattern.test(error.message);
+    }
+    check(`${label} is rejected`, blocked);
+  }
+
+  // One device, two accounts: the row follows whoever signed in last.
+  await service.savePushSubscription("donor-2", { endpoint, keys });
+  check("an endpoint belongs to the newest account", (await service.pushSubscriptionsFor(["donor-2"]))[0]?.sub === "donor-2");
+
+  await service.removePushSubscription("donor-1", endpoint);
+  check("another account cannot remove the device", (await service.pushSubscriptionsFor(["donor-2"])).length === 1);
+
+  await service.removePushSubscription("donor-2", endpoint);
+  check("the owner can turn the device off", (await service.pushSubscriptionsFor(["donor-2"])).length === 0);
+
+  await service.savePushSubscription("donor-1", { endpoint, keys });
+  await service.forgetPushEndpoint(endpoint);
+  check("a dead endpoint is forgotten", (await service.pushSubscriptionsFor(["donor-1"])).length === 0);
+
   finish();
 }
 
