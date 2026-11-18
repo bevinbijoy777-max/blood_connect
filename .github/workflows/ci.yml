@@ -2,6 +2,12 @@ name: Tests
 
 # Both suites are dependency-free, so they run fast and catch broken
 # authorization or validation before anything is deployed.
+#
+# Every job runs in three timezones. UTC is what the deployed app uses, and the
+# other two sit fourteen and eleven hours away from it in opposite directions;
+# with them in place a rule that falls back to the machine's local calendar day
+# fails here instead of in production, where the two halves would silently
+# disagree around midnight.
 
 on:
   push:
@@ -9,8 +15,14 @@ on:
 
 jobs:
   app:
-    name: Web app rules and routes
+    name: Web app rules and routes (${{ matrix.tz }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ["UTC", "Pacific/Kiritimati", "Pacific/Midway"]
+    env:
+      TZ: ${{ matrix.tz }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +41,14 @@ jobs:
         run: npm test
 
   desktop:
-    name: Desktop rules
+    name: Desktop rules (${{ matrix.tz }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ["UTC", "Pacific/Kiritimati", "Pacific/Midway"]
+    env:
+      TZ: ${{ matrix.tz }}
     steps:
       - uses: actions/checkout@v4
 
