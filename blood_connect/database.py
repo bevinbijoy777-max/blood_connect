@@ -19,6 +19,7 @@ from .models import (
     Person,
     ResponseStatus,
     User,
+    utc_today,
 )
 
 SCHEMA = """
@@ -138,7 +139,7 @@ class PersonRepository:
             getattr(person, "blood_group", None),
             person.last_donation.isoformat() if getattr(person, "last_donation", None) else None,
             int(getattr(person, "is_available", True)),
-            date.today().isoformat(),
+            utc_today().isoformat(),
         )
         if person.id is None:
             cursor = connection.execute(

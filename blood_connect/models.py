@@ -522,7 +522,7 @@ class Notification:
         )
         self._actor_id = actor_id
         if created_at is None:
-            self._created_at = date.today()
+            self._created_at = utc_today()
         elif isinstance(created_at, (date, datetime)):
             self._created_at = created_at.date() if isinstance(created_at, datetime) else created_at
         else:

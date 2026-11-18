@@ -274,6 +274,12 @@ class UtcDayTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             parse_date((TODAY + timedelta(days=1)).isoformat(), "Donation date")
 
+    def test_a_notification_is_created_on_the_utc_day(self):
+        notification = Notification(
+            recipient_id=1, request_id=1, message="Asha Rao needs O+ blood in Pune"
+        )
+        self.assertEqual(notification.created_at, TODAY)
+
 
 if __name__ == "__main__":
     unittest.main()

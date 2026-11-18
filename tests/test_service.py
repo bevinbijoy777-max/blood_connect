@@ -255,6 +255,12 @@ class DonorProfileTests(ServiceTestCase):
         with self.assertRaises(ValidationError):
             self.service.set_last_donation(self.donor, tomorrow)
 
+    def test_a_new_account_is_stored_on_the_utc_day(self):
+        row = self.database.connection.execute(
+            "SELECT created_at FROM people WHERE id = ?", (self.donor.id,)
+        ).fetchone()
+        self.assertEqual(row[0], utc_today().isoformat())
+
     def test_seeker_has_no_donor_profile(self):
         seeker = self.register_seeker()
         with self.assertRaises(ValidationError):
