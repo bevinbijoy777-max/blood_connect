@@ -31,5 +31,12 @@ app/.wrangler/
 /package-lock.json
 /freebuff-sites-build/
 
+# Android app build output and its signing key
+android/build/
+android/keystore.jks
+
 # Local screenshots and scratch output
 artifacts/
+
+# apksigner v4 signature sidecar (not needed for sideloading)
+*.idsig

@@ -90,6 +90,7 @@ async function refresh() {
 // -------------------------------------------------------------------- renders
 function render() {
   if (state.loading) return;
+  syncPolling();
   if (!state.user) return renderSignIn();
   if (!state.profile) return renderOnboarding();
 
@@ -100,6 +101,48 @@ function render() {
   else if (state.tab === "inbox") renderInbox();
   else renderProfile();
 }
+
+// --------------------------------------------------------------- live inbox
+// The inbox is fetched once when the page opens, so without this a request sent
+// while a donor already has the app open would sit unseen until they reloaded.
+// Only the inbox is polled: the request list is the seeker's own data and does
+// not need a timer.
+const POLL_MS = 25000;
+let pollTimer = null;
+
+async function refreshInbox() {
+  if (!state.user || state.profile?.role !== "donor") return;
+  const newestBefore = state.inbox.notifications[0]?.id ?? 0;
+  try {
+    state.inbox = await api("/api/inbox");
+  } catch {
+    return;
+  }
+
+  const newest = state.inbox.notifications[0];
+  if (newest && newest.id > newestBefore && state.tab !== "inbox") {
+    toast("A new blood request is waiting in your inbox.");
+  }
+
+  // Only the inbox shows this data, so nothing else is redrawn.
+  if (state.tab === "inbox" && !state.showRequestForm) render();
+}
+
+function syncPolling() {
+  if (!state.user || state.profile?.role !== "donor") {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    return;
+  }
+  pollTimer ??= setInterval(refreshInbox, POLL_MS);
+}
+
+// Coming back to the app is the most likely moment to be waiting for a request.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshInbox();
+});
 
 function renderSignIn() {
   tabsEl.hidden = true;
@@ -140,8 +183,14 @@ function renderTabs() {
   tabsEl.querySelectorAll("button[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.tab = button.dataset.tab;
-      if (state.tab === "donors") searchDonors();
-      else render();
+      if (state.tab === "donors") {
+        searchDonors();
+      } else if (state.tab === "inbox") {
+        render();
+        refreshInbox();
+      } else {
+        render();
+      }
       window.scrollTo({ top: 0 });
     });
   });
@@ -578,3 +627,53 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
+
+// ------------------------------------------------------- installing the app
+const installButton = document.getElementById("install");
+let installPrompt = null;
+
+const isInstalled = () =>
+  window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+// Safari on iOS never fires beforeinstallprompt, so it gets written steps instead.
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+function offerInstall() {
+  if (installButton && !isInstalled()) installButton.hidden = false;
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  offerInstall();
+});
+
+window.addEventListener("appinstalled", () => {
+  installPrompt = null;
+  if (installButton) installButton.hidden = true;
+  toast("Blood Connect is installed.");
+});
+
+if (isIos()) offerInstall();
+
+const installHelp = () =>
+  toast(
+    isIos()
+      ? 'Tap Share, then "Add to Home Screen" to install.'
+      : "Use your browser's Install or Add to Home Screen option.",
+  );
+
+installButton?.addEventListener("click", async () => {
+  const prompt = installPrompt;
+  if (!prompt) return installHelp();
+
+  installPrompt = null;
+  try {
+    prompt.prompt();
+    await prompt.userChoice;
+    installButton.hidden = true;
+  } catch {
+    // A prompt the browser will not show still leaves the manual route.
+    installHelp();
+  }
+});

@@ -1,7 +1,16 @@
 /* App-shell cache. API and auth requests always go to the network. */
 
-const CACHE = "blood-connect-v1";
-const SHELL = ["/", "/app.js", "/style.css", "/manifest.webmanifest", "/icon.svg"];
+const CACHE = "blood-connect-v3";
+const SHELL = [
+  "/",
+  "/app.js",
+  "/style.css",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/apple-touch-icon.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -26,18 +35,19 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) return;
 
+  // Network first: a cached shell that never refreshes would strand people on
+  // an old app.js. The cache is the offline fallback, not the default.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    }),
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(async () =>
+        (await caches.match(event.request)) ?? (await caches.match("/")) ?? Response.error(),
+      ),
   );
 });

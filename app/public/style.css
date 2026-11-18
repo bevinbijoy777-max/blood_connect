@@ -315,6 +315,34 @@ legend {
   text-align: center;
 }
 
+.install {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(var(--tabbar) + 1rem + env(safe-area-inset-bottom));
+  z-index: 15;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+/* The shared button rule sets a display, which beats the browser's own
+   [hidden] style, so hide this one explicitly. */
+.install[hidden] {
+  display: none;
+}
+
+.install:hover,
+.install:focus-visible {
+  border-color: var(--accent);
+}
+
 .toast {
   position: fixed;
   inset: auto 1rem calc(var(--tabbar) + 1rem + env(safe-area-inset-bottom)) 1rem;
