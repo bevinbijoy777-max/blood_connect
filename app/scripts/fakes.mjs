@@ -42,6 +42,10 @@ export class FakeRequests {
   async listForRequester(sub) {
     return [...this.rows.values()].filter((row) => row.requester_sub === sub).reverse();
   }
+  async countCreatedOn(sub, isoDate) {
+    return [...this.rows.values()].filter((row) => row.requester_sub === sub && row.created_at === isoDate)
+      .length;
+  }
   async setStatus(id, status) {
     const row = this.rows.get(id);
     if (row) row.status = status;
@@ -120,13 +124,22 @@ export class FakePush {
 }
 
 /** A real service backed by in-memory repositories. */
-export function makeService() {
+export function makeService({ maxRequestsPerDay } = {}) {
   const service = new BloodConnectService(null);
   service.profiles = new FakeProfiles();
   service.requests = new FakeRequests();
   service.notifications = new FakeNotifications(service.profiles);
   service.push = new FakePush();
+  if (maxRequestsPerDay) service.maxRequestsPerDay = maxRequestsPerDay;
   return service;
+}
+
+/**
+ * Pretend every request was created `days` ago, so expiry and the daily cap
+ * can be exercised without waiting.
+ */
+export function backdateRequests(service, days) {
+  for (const row of service.requests.rows.values()) row.created_at = daysAgo(days);
 }
 
 /** ISO date `days` in the past (negative values are in the future). */

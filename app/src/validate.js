@@ -9,6 +9,22 @@ export const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 export const URGENCIES = ["Normal", "Urgent", "Critical"];
 export const DONATION_INTERVAL_DAYS = 90;
 export const MAX_UNITS = 10;
+/** A request stays open for this long, then nobody can answer it. */
+export const REQUEST_LIFETIME_DAYS = 3;
+/** How many requests one account may post in a day. */
+export const MAX_REQUESTS_PER_DAY = 3;
+
+/** The first day a request is no longer open. */
+export function expiresOn(createdAt) {
+  const date = new Date(`${createdAt}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + REQUEST_LIFETIME_DAYS);
+  return date.toISOString().slice(0, 10);
+}
+
+/** True once the request has outlived REQUEST_LIFETIME_DAYS. */
+export function isExpired(createdAt, today = todayIso()) {
+  return expiresOn(createdAt) <= today;
+}
 
 /** An error the API turns into a JSON response with a status code. */
 export class ApiError extends Error {

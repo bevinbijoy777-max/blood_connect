@@ -11,6 +11,9 @@ import {
   ApiError,
   cleanText,
   eligibility,
+  expiresOn,
+  isExpired,
+  MAX_REQUESTS_PER_DAY,
   normaliseBloodGroup,
   normalisePhone,
   normaliseRole,
@@ -67,6 +70,9 @@ export function donorToJson(row) {
 }
 
 export function requestToJson(row, extra = {}) {
+  // Expiry is decided at read time, so a request closes itself without a job.
+  const closed = !ACTIVE_STATUSES.includes(row.status);
+  const expired = !closed && isExpired(row.created_at);
   return {
     id: row.id,
     patientName: row.patient_name,
@@ -77,9 +83,10 @@ export function requestToJson(row, extra = {}) {
     contact: row.contact,
     urgency: row.urgency,
     note: row.note,
-    status: row.status,
+    status: expired ? "Expired" : row.status,
     createdAt: row.created_at,
-    isActive: ACTIVE_STATUSES.includes(row.status),
+    expiresOn: expiresOn(row.created_at),
+    isActive: !closed && !expired,
     ...extra,
   };
 }
@@ -102,6 +109,8 @@ export class BloodConnectService {
     this.requests = new RequestRepo(db);
     this.notifications = new NotificationRepo(db);
     this.push = new PushRepo(db);
+    // Overridable so tests can focus on other rules.
+    this.maxRequestsPerDay = MAX_REQUESTS_PER_DAY;
   }
 
   // -- profile ------------------------------------------------------------ //
@@ -163,6 +172,15 @@ export class BloodConnectService {
     const profile = await this.profiles.get(sub);
     if (!profile) throw new ApiError("Create your profile before requesting blood.", 409);
 
+    const today = todayIso();
+    const usedToday = await this.requests.countCreatedOn(sub, today);
+    if (usedToday >= this.maxRequestsPerDay) {
+      throw new ApiError(
+        `You can send ${this.maxRequestsPerDay} requests a day. Please try again tomorrow.`,
+        429,
+      );
+    }
+
     const request = {
       requester_sub: sub,
       patient_name: cleanText(input.patientName, "Patient name", 80),
@@ -174,7 +192,7 @@ export class BloodConnectService {
       urgency: normaliseUrgency(input.urgency),
       note: String(input.note ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
       status: "Open",
-      created_at: todayIso(),
+      created_at: today,
     };
     const saved = await this.requests.create(request);
     const { notified, recipients } = await this.notifyMatchingDonors(saved, sub);
@@ -248,6 +266,9 @@ export class BloodConnectService {
     if (!ACTIVE_STATUSES.includes(request.status)) {
       throw new ApiError("This request is already closed.");
     }
+    if (isExpired(request.created_at)) {
+      throw new ApiError("This request has expired.");
+    }
     const status = action === "fulfil" ? "Fulfilled" : action === "cancel" ? "Cancelled" : null;
     if (!status) throw new ApiError("Unknown action for this request.");
     await this.requests.setStatus(request.id, status);
@@ -304,7 +325,11 @@ export class BloodConnectService {
       const request = await this.requests.get(row.request_id);
       if (request) notifications.push({ ...notificationToJson(row), request: requestToJson(request) });
     }
-    return { notifications, pending: notifications.filter((n) => n.isPending).length };
+    // A donor who can no longer answer is not counted as waiting.
+    return {
+      notifications,
+      pending: notifications.filter((n) => n.isPending && n.request.isActive).length,
+    };
   }
 
   async respond(sub, notificationId, accepted) {
@@ -326,6 +351,9 @@ export class BloodConnectService {
     if (!request) throw new ApiError("The blood request is no longer available.", 404);
     if (accepted && !ACTIVE_STATUSES.includes(request.status)) {
       throw new ApiError("This request has already been closed.");
+    }
+    if (accepted && isExpired(request.created_at)) {
+      throw new ApiError("This blood request has expired.");
     }
 
     await this.notifications.setResponse(notification.id, accepted ? "Accepted" : "Declined");

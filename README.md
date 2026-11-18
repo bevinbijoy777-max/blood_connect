@@ -44,7 +44,7 @@ The build recipe is blood_connect.spec; the Python version floor and the PyInsta
 Every push to main also builds both bundles in GitHub Actions and uploads them as run artifacts, so a broken Windows or macOS build shows up before you release anything. Only a v* tag (or a manual run) publishes a GitHub release; re-running one for an existing tag replaces the attached files.
 
 Mobile web app
-app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and contact numbers stay hidden until a donor accepts. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
+app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and contact numbers stay hidden until a donor accepts. A request stays open for three days and then reads as Expired, and one account can post at most three requests a day, so stale requests do not linger and nobody can flood donors. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
 
 Live app: https://site-69e3da5752364c3d893d669df627c833.freebuff.page
 

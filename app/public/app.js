@@ -359,7 +359,9 @@ function requestCardHtml(request) {
       </div>
       <p class="muted small">
         ${request.units} unit(s) · ${esc(request.hospital)}, ${esc(request.city)} ·
-        ${urgencyTag(request.urgency)} <span class="muted">${esc(dateLabel(request.createdAt))}</span>
+        ${urgencyTag(request.urgency)} <span class="muted">${esc(dateLabel(request.createdAt))}${
+          request.isActive ? ` · closes ${esc(dateLabel(request.expiresOn))}` : ""
+        }</span>
       </p>
       ${request.note ? `<p class="small">${esc(request.note)}</p>` : ""}
       ${
@@ -511,9 +513,11 @@ function inboxCardHtml(notification) {
       </div>
       <p class="muted small">${request.units} unit(s) · ${esc(request.hospital)}, ${esc(request.city)}</p>
       ${request.note ? `<p class="small">${esc(request.note)}</p>` : ""}
-      <p class="small muted">${esc(dateLabel(request.createdAt))} · ${esc(request.status)}</p>
+      <p class="small muted">${esc(dateLabel(request.createdAt))} · ${esc(request.status)}${
+        request.isActive ? ` · closes ${esc(dateLabel(request.expiresOn))}` : ""
+      }</p>
       ${
-        notification.isPending
+        notification.isPending && request.isActive
           ? `<div class="row">
                <button class="primary small" data-respond="accept" data-id="${notification.id}">Accept</button>
                <button class="small" data-respond="decline" data-id="${notification.id}">Decline</button>

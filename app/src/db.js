@@ -164,6 +164,15 @@ export class RequestRepo {
     return results ?? [];
   }
 
+  /** How many requests this account has already created on one day. */
+  async countCreatedOn(sub, isoDate) {
+    const row = await this.db
+      .prepare("SELECT COUNT(*) AS total FROM requests WHERE requester_sub = ? AND created_at = ?")
+      .bind(sub, isoDate)
+      .first();
+    return Number(row?.total ?? 0);
+  }
+
   async setStatus(id, status) {
     await this.db.prepare("UPDATE requests SET status = ? WHERE id = ?").bind(status, id).run();
   }

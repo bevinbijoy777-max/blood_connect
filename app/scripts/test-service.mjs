@@ -5,9 +5,9 @@
  * Run: node scripts/test-service.mjs
  */
 
-import { donorToJson } from "../src/service.js";
+import { BloodConnectService, donorToJson } from "../src/service.js";
 import { eligibility } from "../src/validate.js";
-import { checker, daysAgo, makeService } from "./fakes.mjs";
+import { backdateRequests, checker, daysAgo, makeService } from "./fakes.mjs";
 
 const { check, finish } = checker();
 
@@ -54,7 +54,8 @@ async function seed(service) {
 }
 
 async function run() {
-  const service = makeService();
+  // The daily cap gets its own section below; these checks are about matching.
+  const service = makeService({ maxRequestsPerDay: 50 });
 
   console.log("eligibility");
   check("donated 120 days ago is eligible", eligibility(daysAgo(120)).eligible);
@@ -226,6 +227,64 @@ async function run() {
   const refusedId = (await service.inbox("donor-1")).notifications.find((entry) => entry.isPending).id;
   const declinedNow = await service.respond("donor-1", refusedId, false);
   check("declining asks for no push", declinedNow.notify === undefined);
+
+  console.log("request expiry");
+  const ageing = makeService();
+  await ageing.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  await ageing.saveProfile(donor, { role: "donor", phone: "9812345678", city: "Pune", bloodGroup: "O+" });
+  const ageingRequest = await ageing.submitRequest("seeker-1", requestFor());
+
+  backdateRequests(ageing, 2);
+  const dayTwo = (await ageing.myRequests("seeker-1"))[0];
+  check("a two day old request is still open", dayTwo.isActive === true);
+  check("it says which day it closes", dayTwo.expiresOn === daysAgo(-1), dayTwo.expiresOn);
+
+  backdateRequests(ageing, 3);
+  const dayThree = (await ageing.myRequests("seeker-1"))[0];
+  check("a three day old request shows as Expired", dayThree.status === "Expired", dayThree.status);
+  check("an expired request is not active", dayThree.isActive === false);
+
+  const expiredInbox = await ageing.inbox("donor-1");
+  check("the donor sees it as expired", expiredInbox.notifications[0]?.request?.status === "Expired");
+  check("an expired request is not counted as waiting", expiredInbox.pending === 0, String(expiredInbox.pending));
+
+  let expiredAccept = false;
+  try {
+    await ageing.respond("donor-1", expiredInbox.notifications[0].id, true);
+  } catch (error) {
+    expiredAccept = /expired/i.test(error.message);
+  }
+  check("accepting an expired request is refused", expiredAccept);
+
+  let expiredClose = false;
+  try {
+    await ageing.changeStatus("seeker-1", ageingRequest.request.id, "cancel");
+  } catch (error) {
+    expiredClose = /expired/i.test(error.message);
+  }
+  check("closing an expired request is refused", expiredClose);
+
+  console.log("daily request cap");
+  check("the cap is three requests a day", new BloodConnectService(null).maxRequestsPerDay === 3);
+  const capped = makeService();
+  await capped.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  for (let index = 0; index < 3; index += 1) {
+    await capped.submitRequest("seeker-1", requestFor({ units: 1 }));
+  }
+  check("three requests in a day are allowed", (await capped.myRequests("seeker-1")).length === 3);
+
+  let cappedError = null;
+  try {
+    await capped.submitRequest("seeker-1", requestFor({ units: 1 }));
+  } catch (error) {
+    cappedError = error;
+  }
+  check("the fourth request in a day is refused", cappedError?.status === 429, String(cappedError?.status));
+  check("the refusal explains the cap", /3 requests a day/.test(cappedError?.message ?? ""), cappedError?.message);
+
+  backdateRequests(capped, 1);
+  const nextDay = await capped.submitRequest("seeker-1", requestFor({ units: 1 }));
+  check("a new day brings a new allowance", Boolean(nextDay.request.id));
 
   finish();
 }

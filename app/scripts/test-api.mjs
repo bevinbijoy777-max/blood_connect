@@ -9,7 +9,7 @@
  */
 
 import { errorResponse, routeApi } from "../src/api.js";
-import { daysAgo, makeService } from "./fakes.mjs";
+import { backdateRequests, daysAgo, makeService } from "./fakes.mjs";
 import { checker } from "./fakes.mjs";
 
 const { check, finish } = checker();
@@ -51,7 +51,8 @@ async function body(response) {
 }
 
 async function run() {
-  const service = makeService();
+  // The daily cap is checked on its own service below.
+  const service = makeService({ maxRequestsPerDay: 50 });
   await service.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
   await service.saveProfile(donor, {
     role: "donor",
@@ -297,6 +298,53 @@ async function run() {
     },
   );
   check("a failed push does not fail the accept", response.status === 200, `got ${response.status}`);
+
+  console.log("request hygiene");
+  const hygiene = makeService({ maxRequestsPerDay: 50 });
+  await hygiene.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  await hygiene.saveProfile(donor, {
+    role: "donor",
+    phone: "9812345678",
+    city: "Pune",
+    bloodGroup: "O+",
+    lastDonation: daysAgo(120),
+  });
+  const oldSeeker = { user: seeker, service: hygiene };
+  const oldDonor = { user: donor, service: hygiene };
+
+  response = await call("/api/requests", { method: "POST", body: validRequest }, oldSeeker);
+  check("a request for the expiry test is created", response.status === 201, `got ${response.status}`);
+  backdateRequests(hygiene, 3);
+
+  response = await call("/api/requests", {}, oldSeeker);
+  const oldList = await body(response);
+  check("an old request is listed as Expired", oldList?.requests?.[0]?.status === "Expired", oldList?.requests?.[0]?.status);
+  check("an old request is not active", oldList?.requests?.[0]?.isActive === false);
+  check("the closing date is exposed", /^\d{4}-\d{2}-\d{2}$/.test(oldList?.requests?.[0]?.expiresOn ?? ""));
+
+  response = await call("/api/inbox", {}, oldDonor);
+  const oldInbox = await body(response);
+  check("the donor sees the request as expired", oldInbox?.notifications?.[0]?.request?.status === "Expired");
+  check("expired requests are not counted as waiting", oldInbox?.pending === 0, String(oldInbox?.pending));
+
+  response = await call(
+    `/api/notifications/${oldInbox.notifications[0].id}`,
+    { method: "POST", body: { accept: true } },
+    oldDonor,
+  );
+  check("accepting an expired request is 400", response.status === 400, `got ${response.status}`);
+  check("the refusal says it expired", /expired/i.test((await body(response))?.error ?? ""));
+
+  const cappedApi = makeService();
+  await cappedApi.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  const cappedSeeker = { user: seeker, service: cappedApi };
+  for (let index = 0; index < 3; index += 1) {
+    response = await call("/api/requests", { method: "POST", body: validRequest }, cappedSeeker);
+    check(`request ${index + 1} of the day is accepted`, response.status === 201, `got ${response.status}`);
+  }
+  response = await call("/api/requests", { method: "POST", body: validRequest }, cappedSeeker);
+  check("a fourth request in one day is 429", response.status === 429, `got ${response.status}`);
+  check("the refusal explains the cap", /requests a day/i.test((await body(response))?.error ?? ""));
 
   finish();
 }
