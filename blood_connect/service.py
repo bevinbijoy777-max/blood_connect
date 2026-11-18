@@ -7,8 +7,6 @@ Tkinter interface free of SQL and business logic.
 
 from __future__ import annotations
 
-from datetime import date
-
 from .database import (
     Database,
     NotificationRepository,
@@ -26,6 +24,7 @@ from .models import (
     User,
     ValidationError,
     AuthenticationError,
+    utc_today,
 )
 
 
@@ -88,7 +87,7 @@ class BloodConnectService:
         urgency="Normal",
         note="",
     ) -> tuple[BloodRequest, int]:
-        used_today = self._requests.count_created_on(seeker.id, date.today())
+        used_today = self._requests.count_created_on(seeker.id, utc_today())
         if used_today >= MAX_REQUESTS_PER_DAY:
             raise ValidationError(
                 f"You can send {MAX_REQUESTS_PER_DAY} requests a day. "

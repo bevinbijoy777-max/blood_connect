@@ -20,7 +20,7 @@ import hashlib
 import re
 import secrets
 from abc import ABC, abstractmethod
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 
 BLOOD_GROUPS = ("A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-")
@@ -31,6 +31,16 @@ MAX_UNITS_PER_REQUEST = 10
 # Both halves of Blood Connect enforce these; see app/src/validate.js.
 REQUEST_LIFETIME_DAYS = 3
 MAX_REQUESTS_PER_DAY = 3
+
+
+def utc_today() -> date:
+    """The one notion of "today" both halves use: a UTC calendar day.
+
+    The web app runs on Workers and can only read UTC, so a request's creation
+    day, its expiry and the daily cap are all counted in UTC here too. Using
+    local time would let the two disagree for a few hours around midnight.
+    """
+    return datetime.now(timezone.utc).date()
 
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
 _PASSWORD_ITERATIONS = 120_000
@@ -116,7 +126,7 @@ def parse_date(value: str | date | datetime, label: str = "Date") -> date:
             parsed = date.fromisoformat(text)
         except ValueError:
             raise ValidationError(f"{label} must look like YYYY-MM-DD.") from None
-    if parsed > date.today():
+    if parsed > utc_today():
         raise ValidationError(f"{label} cannot be in the future.")
     return parsed
 
@@ -294,8 +304,9 @@ class Donor(User):
         return self._last_donation + timedelta(days=DONATION_INTERVAL_DAYS)
 
     def is_eligible(self, on: date | None = None) -> bool:
+        """Counted in the same UTC days as the web app, so both notify alike."""
         next_date = self.next_eligible_date
-        return next_date is None or (on or date.today()) >= next_date
+        return next_date is None or (on or utc_today()) >= next_date
 
     @property
     def can_receive_requests(self) -> bool:
@@ -313,7 +324,7 @@ class Donor(User):
         self._is_available = bool(available)
 
     def record_donation(self, on: date | None = None) -> None:
-        self._last_donation = parse_date(on or date.today(), "Donation date")
+        self._last_donation = parse_date(on or utc_today(), "Donation date")
 
     def describe(self) -> str:
         return f"{self._full_name} ({self._blood_group} donor, {self._city})"
@@ -369,7 +380,7 @@ class BloodRequest:
         self._note = " ".join((note or "").split())[:300]
         self._status = status if isinstance(status, RequestStatus) else RequestStatus(status)
         if created_at is None:
-            self._created_at = date.today()
+            self._created_at = utc_today()
         elif isinstance(created_at, (date, datetime)):
             self._created_at = created_at.date() if isinstance(created_at, datetime) else created_at
         else:
@@ -435,7 +446,7 @@ class BloodRequest:
 
     def is_expired(self, on: date | None = None) -> bool:
         """True from the day after REQUEST_LIFETIME_DAYS, like the web app."""
-        return (on or date.today()) >= self.expires_on
+        return (on or utc_today()) >= self.expires_on
 
     @property
     def is_closed(self) -> bool:

@@ -10,9 +10,10 @@ Run from the repository root:
 from __future__ import annotations
 
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from blood_connect.models import (
+    DONATION_INTERVAL_DAYS,
     BloodRequest,
     Donor,
     Notification,
@@ -25,13 +26,15 @@ from blood_connect.models import (
     normalise_phone,
     parse_date,
     parse_optional_date,
+    utc_today,
     validate_password,
 )
 
-TODAY = date.today()
+TODAY = utc_today()
 
 
 def days_ago(days: int) -> str:
+    """Routes and eligibility count UTC days, so the tests do too."""
     return (TODAY - timedelta(days=days)).isoformat()
 
 
@@ -244,6 +247,32 @@ class RequestExpiryTests(unittest.TestCase):
         request = make_request(created_at=days_ago(10), status="Fulfilled")
         self.assertEqual(request.status_label, "Fulfilled")
         self.assertFalse(request.is_active)
+
+    def test_the_default_creation_day_is_utc(self):
+        self.assertEqual(make_request().created_at, TODAY)
+
+
+class UtcDayTests(unittest.TestCase):
+    """Eligibility uses the same UTC day as the web app, not the local one."""
+
+    def test_today_is_the_utc_date(self):
+        self.assertEqual(TODAY, datetime.now(timezone.utc).date())
+
+    def test_a_donation_logged_today_uses_the_utc_day(self):
+        donor = make_donor()
+        donor.record_donation()
+        self.assertEqual(donor.last_donation, TODAY)
+        self.assertFalse(donor.is_eligible())
+        self.assertEqual(
+            donor.next_eligible_date, TODAY + timedelta(days=DONATION_INTERVAL_DAYS)
+        )
+
+    def test_a_donation_dated_today_in_utc_is_accepted(self):
+        self.assertEqual(parse_date(TODAY.isoformat(), "Donation date"), TODAY)
+
+    def test_a_donation_dated_tomorrow_in_utc_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            parse_date((TODAY + timedelta(days=1)).isoformat(), "Donation date")
 
 
 if __name__ == "__main__":

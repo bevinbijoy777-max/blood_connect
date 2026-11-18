@@ -6,7 +6,7 @@
  */
 
 import { BloodConnectService, donorToJson } from "../src/service.js";
-import { eligibility } from "../src/validate.js";
+import { eligibility, expiresOn, isExpired, todayIso } from "../src/validate.js";
 import { backdateRequests, checker, daysAgo, makeService } from "./fakes.mjs";
 
 const { check, finish } = checker();
@@ -62,6 +62,16 @@ async function run() {
   check("donated 10 days ago is not eligible", !eligibility(daysAgo(10)).eligible);
   check("never donated is eligible", eligibility(null).eligible);
   check("next eligible is 90 days later", eligibility(daysAgo(30)).nextEligible === daysAgo(-60));
+
+  // The desktop app's utc_today() has to agree with this, whatever the clock.
+  const today = todayIso();
+  const utcDay = (offset) =>
+    new Date(Date.parse(`${today}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
+  console.log("days are counted in UTC");
+  check("today is the UTC date", today === new Date().toISOString().slice(0, 10), today);
+  check("a request closes three days after creation", expiresOn(today) === utcDay(3), expiresOn(today));
+  check("it is still open on the third day", !isExpired(today, utcDay(2)));
+  check("it has expired on the fourth day", isExpired(today, utcDay(3)));
 
   await seed(service);
 

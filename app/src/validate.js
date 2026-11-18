@@ -113,6 +113,11 @@ export function normaliseRole(value) {
   return role;
 }
 
+/**
+ * Today as the app counts days: a UTC date. Request expiry and the daily cap
+ * both use it, and the desktop app's utc_today() matches, so the two halves
+ * cannot disagree around midnight.
+ */
 export function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }

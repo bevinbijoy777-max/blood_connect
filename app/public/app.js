@@ -29,7 +29,10 @@ const esc = (value) =>
     "'": "&#39;",
   })[character]);
 
-const dateLabel = (iso) => (iso ? new Date(`${iso}T00:00:00Z`).toLocaleDateString() : "");
+// Days are UTC everywhere, so they are formatted in UTC too: otherwise a date
+// stored for today would read as yesterday west of Greenwich.
+const dateLabel = (iso) =>
+  iso ? new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC" }) : "";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);

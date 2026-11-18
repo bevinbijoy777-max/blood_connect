@@ -10,19 +10,21 @@ Run from the repository root:
 from __future__ import annotations
 
 import unittest
-from datetime import date, timedelta
+from datetime import timedelta
 
 from blood_connect.database import Database, RequestRepository
 from blood_connect.models import (
     AuthenticationError,
     Donor,
     ValidationError,
+    utc_today,
 )
 from blood_connect.service import BloodConnectService
 
 
 def days_ago(days: int) -> str:
-    return (date.today() - timedelta(days=days)).isoformat()
+    """A date ``days`` before today, in the UTC days the rules use."""
+    return (utc_today() - timedelta(days=days)).isoformat()
 
 
 class ServiceTestCase(unittest.TestCase):
@@ -239,7 +241,7 @@ class DonorProfileTests(ServiceTestCase):
         self.assertTrue(resumed.can_receive_requests)
 
     def test_logging_a_donation_makes_the_donor_ineligible(self):
-        updated = self.service.set_last_donation(self.donor, date.today().isoformat())
+        updated = self.service.set_last_donation(self.donor, utc_today().isoformat())
         self.assertFalse(updated.is_eligible())
         self.assertFalse(updated.can_receive_requests)
         self.assertIsNotNone(updated.next_eligible_date)
@@ -247,6 +249,11 @@ class DonorProfileTests(ServiceTestCase):
     def test_future_donation_date_is_rejected(self):
         with self.assertRaises(ValidationError):
             self.service.set_last_donation(self.donor, "2999-01-01")
+
+    def test_a_donation_dated_tomorrow_in_utc_is_rejected(self):
+        tomorrow = (utc_today() + timedelta(days=1)).isoformat()
+        with self.assertRaises(ValidationError):
+            self.service.set_last_donation(self.donor, tomorrow)
 
     def test_seeker_has_no_donor_profile(self):
         seeker = self.register_seeker()
@@ -284,8 +291,8 @@ class RequestHygieneTests(ServiceTestCase):
         stored = self.service.my_requests(self.seeker)[0]
         self.assertTrue(stored.is_active)
         self.assertEqual(stored.status_label, "Open")
-        # Two days used, so it closes tomorrow.
-        self.assertEqual(stored.expires_on, date.today() + timedelta(days=1))
+        # Two days used, so it closes tomorrow (UTC, like the web app).
+        self.assertEqual(stored.expires_on, utc_today() + timedelta(days=1))
 
     def test_a_three_day_old_request_has_expired(self):
         self.submit(self.seeker)
