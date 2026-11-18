@@ -367,12 +367,28 @@ async function run() {
   check("nobody is pushed to on their behalf", !afterBlock.recipients.some((entry) => entry.sub === "donor-1"));
   check("other donors still hear about the request", (await guarding.inbox(neighbour.sub)).notifications.length === 2);
 
+  const seekerSearch = await guarding.searchDonors({ bloodGroup: "O+", viewerSub: "seeker-1" });
+  check(
+    "a donor who blocked you is hidden from your search",
+    !seekerSearch.some((entry) => entry.name === "Ravi Kumar"),
+    JSON.stringify(seekerSearch.map((entry) => entry.name)),
+  );
+  check("other donors still appear in that search", seekerSearch.some((entry) => entry.name === "Neha Patil"));
+  const anonymousSearch = await guarding.searchDonors({ bloodGroup: "O+" });
+  check("search without a viewer is unchanged", anonymousSearch.some((entry) => entry.name === "Ravi Kumar"));
+
   await guarding.unblockAccount("donor-1", "seeker-1");
   check("unblocking empties the block list", (await guarding.blockedAccounts("donor-1")).length === 0);
   check(
     "unblocking brings their requests back",
     (await guarding.inbox("donor-1")).notifications.length === 1,
     JSON.stringify((await guarding.inbox("donor-1")).notifications.length),
+  );
+  check(
+    "unblocking brings the donor back to search",
+    (await guarding.searchDonors({ bloodGroup: "O+", viewerSub: "seeker-1" })).some(
+      (entry) => entry.name === "Ravi Kumar",
+    ),
   );
 
   finish();

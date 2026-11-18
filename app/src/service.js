@@ -310,13 +310,16 @@ export class BloodConnectService {
   }
 
   // -- donors and inbox --------------------------------------------------- //
-  async searchDonors({ bloodGroup, city }) {
+  async searchDonors({ bloodGroup, city, viewerSub }) {
     const group = bloodGroup ? normaliseBloodGroup(bloodGroup) : null;
     const rows = await this.profiles.listDonors({
       bloodGroup: group,
       city: city ? String(city).trim() : null,
     });
+    // A donor who blocked this account is hidden from its search too.
+    const hidden = new Set(viewerSub ? await this.blocks.donorSubsBlocking(viewerSub) : []);
     return rows
+      .filter((row) => !hidden.has(row.sub))
       .map(donorToJson)
       .sort((a, b) => Number(b.canReceiveRequests) - Number(a.canReceiveRequests) || a.name.localeCompare(b.name));
   }

@@ -123,6 +123,7 @@ export async function routeApi(request, {
     const donors = await service.searchDonors({
       bloodGroup: url.searchParams.get("group"),
       city: url.searchParams.get("city"),
+      viewerSub: user.sub,
     });
     return json({ donors });
   }

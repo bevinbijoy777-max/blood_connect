@@ -424,6 +424,14 @@ async function run() {
   check("the block list shows one account", blockedList.length === 1, JSON.stringify(blockedList));
   check("the block list names it", blockedList[0]?.name === "Asha Rao", blockedList[0]?.name);
 
+  response = await call("/api/donors?group=O%2B", {}, guardSeeker);
+  const guardedDonors = (await body(response))?.donors ?? [];
+  check(
+    "a blocked donor is hidden from the blocked account's search",
+    !guardedDonors.some((entry) => entry.name === "Ravi Kumar"),
+    JSON.stringify(guardedDonors),
+  );
+
   let guardPush = null;
   const guardedPost = await call(
     "/api/requests",
@@ -454,6 +462,12 @@ async function run() {
 
   response = await call("/api/blocked", {}, guardDonor);
   check("the block list is empty again", (await body(response))?.blocked?.length === 0);
+
+  response = await call("/api/donors?group=O%2B", {}, guardSeeker);
+  check(
+    "unblocking brings the donor back to search",
+    ((await body(response))?.donors ?? []).some((entry) => entry.name === "Ravi Kumar"),
+  );
 
   finish();
 }
