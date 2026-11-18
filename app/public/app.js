@@ -128,8 +128,11 @@ async function refreshInbox() {
   if (state.tab === "inbox" && !state.showRequestForm) render();
 }
 
+const inForeground = () => document.visibilityState === "visible";
+
 function syncPolling() {
-  if (!state.user || state.profile?.role !== "donor") {
+  // Nothing to poll for, and no point polling a page nobody is looking at.
+  if (!state.user || state.profile?.role !== "donor" || !inForeground()) {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
@@ -139,9 +142,10 @@ function syncPolling() {
   pollTimer ??= setInterval(refreshInbox, POLL_MS);
 }
 
-// Coming back to the app is the most likely moment to be waiting for a request.
+// Background tabs stop polling entirely; coming back catches up in one request.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") refreshInbox();
+  if (inForeground()) refreshInbox();
+  syncPolling();
 });
 
 function renderSignIn() {

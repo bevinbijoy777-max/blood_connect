@@ -46,7 +46,7 @@ Every push to main also builds both bundles in GitHub Actions and uploads them a
 Mobile web app
 app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and contact numbers stay hidden until a donor accepts. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
 
-Live app: https://site-2fc00d1846d74613bc1574afdce9abc8.freebuff.page
+Live app: https://site-69e3da5752364c3d893d669df627c833.freebuff.page
 
 cd app
 npm install
@@ -55,7 +55,17 @@ npm run dev                     # local Worker + local database on http://localh
 
 Publishing the web app to Freebuff Sites starts from the repository root: package.json builds app/ and deploy.json points at its output. Keeping those at the root is what lets the Publish button find the app; the desktop files are not part of that build.
 
-Add it to a phone's home screen with "Add to Home Screen" for a full-screen app.
+Add it to a phone's home screen with "Add to Home Screen" for a full-screen app, or install the Android app described below.
+
+Android app (.apk)
+android/ wraps the live web app in a single-screen WebView, so Android users install one file instead of finding "Add to Home Screen" in their browser. The built APK is served at /BloodConnect.apk from the web app, and the landing page downloads it from there. It needs Android 7 (API 24) or newer and an internet connection; sign-in is the same Freebuff account as the web app.
+
+cd android
+./build.sh          # writes app/public/BloodConnect.apk
+
+The script drives the SDK directly (aapt2, javac, d8, zipalign, apksigner), so no Gradle download is involved. It needs a JDK 17+ and an Android SDK with build-tools;34.0.0 and platforms;android-34; set JAVA_HOME and ANDROID_SDK_ROOT if they are not found. MainActivity.java is the whole app: it loads the production URL, keeps other sites in the browser, and shows an offline message instead of a blank screen.
+
+The first build creates the signing key at android/keystore.jks. It is gitignored and is not in the repository: keep it somewhere safe, because Android only installs an update over an existing app when it is signed with the same key. Without it you must uninstall the app before installing a new build. The store and key passwords are the ones in build.sh (bloodconnect) — fine for a self-signed sideload build, and the reason this APK is not on Google Play. Delete both keystore and app to start over with a new identity.
 
 Landing page
 The download page lives in site/ and is a plain Vite site. It reports Core Web Vitals with @vercel/speed-insights once deployed to Vercel.
@@ -80,6 +90,9 @@ blood_connect.spec      PyInstaller recipe for the standalone app
 pyproject.toml          Python 3.10+ floor, stdlib-only dependencies, build extra
 site/                   download landing page (Vite + @vercel/speed-insights)
 app/                    mobile web app (Worker + D1 + Sign in with Freebuff)
+android/                Android WebView app and the APK build script
+deploy.json             Sites deploy manifest for app/ (used by Publish)
+package.json            root build script that builds app/
 blood_connect/
   models.py             domain classes: Person, User, Donor, BloodRequest, Notification
   database.py           SQLite schema plus Person / Request / Notification repositories
