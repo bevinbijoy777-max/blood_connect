@@ -180,6 +180,48 @@ export class FakeReports {
   }
 }
 
+export class FakeDonorReports {
+  constructor(profiles) {
+    this.profiles = profiles;
+    this.rows = new Map();
+  }
+  async save(report) {
+    const key = `${report.donor_sub}:${report.reporter_sub}`;
+    this.rows.set(key, { ...report });
+    return this.rows.get(key);
+  }
+  /** Mirrors the JOIN in DonorReportRepo.listRecent. */
+  async listRecent(limit = 200) {
+    const rows = [...this.rows.values()].slice(0, limit);
+    return Promise.all(
+      rows.map(async (row) => {
+        const donor = await this.profiles.get(row.donor_sub);
+        const reporter = await this.profiles.get(row.reporter_sub);
+        return {
+          id: row.id ?? 0,
+          donor_sub: row.donor_sub,
+          reason: row.reason,
+          created_at: row.created_at,
+          reporter_sub: row.reporter_sub,
+          donor_name: donor?.name ?? null,
+          donor_phone: donor?.phone ?? null,
+          donor_city: donor?.city ?? null,
+          donor_blood_group: donor?.blood_group ?? null,
+          reporter_name: reporter?.name ?? null,
+        };
+      }),
+    );
+  }
+  /** Mirrors DonorReportRepo.countsByDonor. */
+  async countsByDonor() {
+    const totals = new Map();
+    for (const row of this.rows.values()) {
+      totals.set(row.donor_sub, (totals.get(row.donor_sub) ?? 0) + 1);
+    }
+    return [...totals].map(([donor_sub, total]) => ({ donor_sub, total }));
+  }
+}
+
 export class FakeSearchQuota {
   constructor() {
     this.rows = new Map();
@@ -242,6 +284,7 @@ export function makeService({ maxRequestsPerDay, maxSearchesPerDay, maxResultsPe
   service.notifications = new FakeNotifications(service.profiles);
   service.push = new FakePush();
   service.reports = new FakeReports(service.requests, service.profiles);
+  service.donorReports = new FakeDonorReports(service.profiles);
   service.blocks = new FakeBlocks(service.profiles);
   service.searchQuota = new FakeSearchQuota();
   if (maxRequestsPerDay) service.maxRequestsPerDay = maxRequestsPerDay;

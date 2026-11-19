@@ -60,6 +60,15 @@ export const STATEMENTS = [
   created_at    TEXT NOT NULL,
   UNIQUE(request_id, reporter_sub)
 )`,
+  // One report per seeker per donor; reporting again replaces the reason.
+  `CREATE TABLE IF NOT EXISTS donor_reports (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  donor_sub     TEXT NOT NULL,
+  reporter_sub  TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  UNIQUE(donor_sub, reporter_sub)
+)`,
   // A donor's personal block list. The blocked account is never told.
   `CREATE TABLE IF NOT EXISTS blocked_requesters (
   donor_sub   TEXT NOT NULL,
@@ -76,6 +85,7 @@ export const STATEMENTS = [
 )`,
   `CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requester_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_request_reports_requester ON request_reports(requester_sub)`,
+  `CREATE INDEX IF NOT EXISTS idx_donor_reports_donor ON donor_reports(donor_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_blocked_requesters_blocked ON blocked_requesters(blocked_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)`,
@@ -392,6 +402,58 @@ export class ReportRepo {
   async countsByRequester() {
     const { results } = await this.db
       .prepare("SELECT requester_sub, COUNT(*) AS total FROM request_reports GROUP BY requester_sub")
+      .all();
+    return results ?? [];
+  }
+}
+
+export class DonorReportRepo {
+  constructor(db) {
+    this.db = db;
+  }
+
+  /** Reporting the same donor twice keeps one row and the newest reason. */
+  async save(report) {
+    await this.db
+      .prepare(
+        `INSERT INTO donor_reports (donor_sub, reporter_sub, reason, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(donor_sub, reporter_sub) DO UPDATE SET
+           reason = excluded.reason,
+           created_at = excluded.created_at`,
+      )
+      .bind(report.donor_sub, report.reporter_sub, report.reason, report.created_at)
+      .run();
+    const row = await this.db
+      .prepare("SELECT * FROM donor_reports WHERE donor_sub = ? AND reporter_sub = ?")
+      .bind(report.donor_sub, report.reporter_sub)
+      .first();
+    return row ?? null;
+  }
+
+  /** Every report against a donor, newest first, with both accounts named. */
+  async listRecent(limit = 200) {
+    const { results } = await this.db
+      .prepare(
+        `SELECT r.id, r.donor_sub, r.reason, r.created_at, r.reporter_sub,
+                donor.name AS donor_name, donor.phone AS donor_phone,
+                donor.city AS donor_city, donor.blood_group AS donor_blood_group,
+                reporter.name AS reporter_name
+           FROM donor_reports r
+           LEFT JOIN profiles donor ON donor.sub = r.donor_sub
+           LEFT JOIN profiles reporter ON reporter.sub = r.reporter_sub
+          ORDER BY r.id DESC
+          LIMIT ?`,
+      )
+      .bind(limit)
+      .all();
+    return results ?? [];
+  }
+
+  /** How many reports each donor has collected. */
+  async countsByDonor() {
+    const { results } = await this.db
+      .prepare("SELECT donor_sub, COUNT(*) AS total FROM donor_reports GROUP BY donor_sub")
       .all();
     return results ?? [];
   }

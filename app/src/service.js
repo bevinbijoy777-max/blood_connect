@@ -8,6 +8,7 @@
 
 import {
   BlockRepo,
+  DonorReportRepo,
   NotificationRepo,
   ProfileRepo,
   PushRepo,
@@ -71,6 +72,9 @@ export function profileToJson(row) {
 export function donorToJson(row) {
   const profile = profileToJson(row);
   return {
+    // The opaque account id, so a seeker can report this donor. It is the same
+    // id the block list and blocked/unblock routes already use.
+    sub: row.sub,
     name: profile.name,
     phone: profile.phone,
     city: profile.city,
@@ -121,6 +125,7 @@ export class BloodConnectService {
     this.notifications = new NotificationRepo(db);
     this.push = new PushRepo(db);
     this.reports = new ReportRepo(db);
+    this.donorReports = new DonorReportRepo(db);
     this.blocks = new BlockRepo(db);
     this.searchQuota = new SearchQuotaRepo(db);
     // Overridable so tests can focus on other rules.
@@ -478,6 +483,32 @@ export class BloodConnectService {
    * Stop hearing from the account that posted this request. Only this donor's
    * inbox is affected, and the blocked account is not told.
    */
+  /**
+   * Report a donor found in search. Only a seeker may do this, and only about
+   * a real donor account, so the queue cannot be filled with junk targets.
+   */
+  async reportDonor(sub, donorSub, reasonInput) {
+    const profile = await this.profiles.get(sub);
+    if (!profile || profile.role !== "seeker") {
+      throw new ApiError("Only blood seekers can report a donor.", 403);
+    }
+    const target = String(donorSub ?? "").trim();
+    if (!target) throw new ApiError("Choose the donor to report.");
+    if (target === sub) throw new ApiError("You cannot report your own account.");
+    const donor = await this.profiles.get(target);
+    if (!donor || donor.role !== "donor") {
+      throw new ApiError("That donor is no longer available.", 404);
+    }
+    const reason = normaliseReportReason(reasonInput);
+    const saved = await this.donorReports.save({
+      donor_sub: donor.sub,
+      reporter_sub: sub,
+      reason,
+      created_at: todayIso(),
+    });
+    return { reported: true, reason: saved?.reason ?? reason };
+  }
+
   async blockRequest(sub, requestId) {
     const profile = await this.profiles.get(sub);
     if (!profile || profile.role !== "donor") {
@@ -513,14 +544,30 @@ export class BloodConnectService {
    * accounts named. Reading only: a moderator decides what to do about it.
    */
   async moderationQueue({ limit = 200 } = {}) {
-    const [rows, counts] = await Promise.all([
+    const [rows, counts, donorRows, donorCounts] = await Promise.all([
       this.reports.listRecent(limit),
       this.reports.countsByRequester(),
+      this.donorReports.listRecent(limit),
+      this.donorReports.countsByDonor(),
     ]);
     const against = new Map(counts.map((row) => [row.requester_sub, Number(row.total)]));
+    const againstDonor = new Map(donorCounts.map((row) => [row.donor_sub, Number(row.total)]));
+    // Both kinds of report share one queue, newest first. The two tables have
+    // their own ids, so the date leads and the id only breaks same-day ties.
+    const merged = [
+      ...rows.map((row) => ({ kind: "request", row })),
+      ...donorRows.map((row) => ({ kind: "donor", row })),
+    ].sort(
+      (a, b) =>
+        (a.row.created_at < b.row.created_at ? 1 : a.row.created_at > b.row.created_at ? -1 : 0) ||
+        b.row.id - a.row.id,
+    );
     return {
-      total: [...against.values()].reduce((sum, value) => sum + value, 0),
-      reports: rows.map((row) => ({
+      total:
+        [...against.values()].reduce((sum, value) => sum + value, 0) +
+        [...againstDonor.values()].reduce((sum, value) => sum + value, 0),
+      reports: merged.slice(0, limit).map(({ kind, row }) => (kind === "request" ? {
+        type: "request",
         id: row.id,
         reason: row.reason,
         createdAt: row.created_at,
@@ -543,6 +590,20 @@ export class BloodConnectService {
           phone: row.requester_phone ?? null,
           city: row.requester_city ?? null,
           reportsAgainst: against.get(row.requester_sub) ?? 1,
+        },
+        reporter: { sub: row.reporter_sub, name: row.reporter_name ?? null },
+      } : {
+        type: "donor",
+        id: row.id,
+        reason: row.reason,
+        createdAt: row.created_at,
+        donor: {
+          sub: row.donor_sub,
+          name: row.donor_name ?? null,
+          phone: row.donor_phone ?? null,
+          city: row.donor_city ?? null,
+          bloodGroup: row.donor_blood_group ?? null,
+          reportsAgainst: againstDonor.get(row.donor_sub) ?? 1,
         },
         reporter: { sub: row.reporter_sub, name: row.reporter_name ?? null },
       })),

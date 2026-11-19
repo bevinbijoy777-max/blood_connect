@@ -148,6 +148,13 @@ export async function routeApi(request, {
     return json({ donors, total, remaining });
   }
 
+  // A seeker reports a donor from search results; it lands in the same
+  // moderation queue as the reports donors file against requests.
+  if (path === "/api/donors/report" && method === "POST") {
+    const { sub, reason } = await readBody(request);
+    return json(await service.reportDonor(user.sub, sub, reason), 201);
+  }
+
   if (path === "/api/inbox" && method === "GET") {
     return json(await service.inbox(user.sub));
   }

@@ -429,6 +429,56 @@ async function run() {
     (await limited.searchDonors({ viewerSub: "seeker-2" })).donors.length === 1,
   );
 
+  console.log("reporting a donor");
+  const accusing = makeService({ maxRequestsPerDay: 50 });
+  await accusing.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  await accusing.saveProfile(donor, { role: "donor", phone: "9812345678", city: "Pune", bloodGroup: "O+" });
+  const donorReport = await accusing.reportDonor("seeker-1", "donor-1", "Wrong details");
+  check("a seeker can report a donor", donorReport.reported === true && donorReport.reason === "Wrong details");
+  await accusing.reportDonor("seeker-1", "donor-1", "Spam");
+  check("reporting the same donor twice keeps one record", accusing.donorReports.rows.size === 1);
+  check("the newest donor report reason wins", [...accusing.donorReports.rows.values()][0].reason === "Spam");
+
+  for (const [label, args, expected] of [
+    ["a donor cannot report a donor", ["donor-1", "donor-1", "Spam"], 403],
+    ["an unknown donor cannot be reported", ["seeker-1", "ghost", "Spam"], 404],
+    ["a seeker cannot report their own account", ["seeker-1", "seeker-1", "Spam"], 400],
+    ["an unknown donor report reason is refused", ["seeker-1", "donor-1", "Whatever"], 400],
+  ]) {
+    let refused = null;
+    try {
+      await accusing.reportDonor(...args);
+    } catch (error) {
+      refused = error;
+    }
+    check(label, refused?.status === expected, String(refused?.status));
+  }
+
+  const donorQueue = await accusing.moderationQueue();
+  check(
+    "the donor report reaches the moderator queue",
+    donorQueue.reports[0]?.type === "donor" && donorQueue.total === 1,
+    JSON.stringify(donorQueue.reports[0]?.type),
+  );
+  check(
+    "it names the reported donor with their phone",
+    donorQueue.reports[0]?.donor?.name === "Ravi Kumar" && donorQueue.reports[0]?.donor?.phone === "9812345678",
+    JSON.stringify(donorQueue.reports[0]?.donor),
+  );
+  check("it counts the reports against that donor", donorQueue.reports[0]?.donor?.reportsAgainst === 1);
+  check("it names the seeker who filed it", donorQueue.reports[0]?.reporter?.name === "Asha Rao");
+
+  // The two kinds of report share one queue.
+  const accusedRequest = await accusing.submitRequest("seeker-1", requestFor({ units: 1 }));
+  await accusing.reportRequest("donor-1", accusedRequest.request.id, "Looks fake");
+  const mixedQueue = await accusing.moderationQueue();
+  check("both kinds of report share the queue", mixedQueue.total === 2 && mixedQueue.reports.length === 2);
+  check(
+    "both report types are present",
+    mixedQueue.reports.some((report) => report.type === "donor") &&
+      mixedQueue.reports.some((report) => report.type === "request"),
+  );
+
   console.log("donor search result cap");
   check("a search returns at most twenty donors", new BloodConnectService(null).maxResultsPerSearch === 20);
   const crowded = makeService({ maxResultsPerSearch: 2 });

@@ -516,6 +516,73 @@ async function run() {
   check("the search after the allowance is 429", response.status === 429, `got ${response.status}`);
   check("the refusal explains the cap", /2 times a day/i.test((await body(response))?.error ?? ""));
 
+  console.log("reporting a donor");
+  const accuseApi = makeService({ maxRequestsPerDay: 50 });
+  await accuseApi.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  await accuseApi.saveProfile(donor, { role: "donor", phone: "9812345678", city: "Pune", bloodGroup: "O+" });
+  const accuseSeeker = { user: seeker, service: accuseApi };
+  const accuseDonor = { user: donor, service: accuseApi };
+
+  response = await call("/api/donors?group=O%2B", {}, accuseSeeker);
+  const reportable = (await body(response))?.donors?.[0];
+  check("search results carry an id to report", Boolean(reportable?.sub), JSON.stringify(reportable));
+
+  response = await call(
+    "/api/donors/report",
+    { method: "POST", body: { sub: donor.sub, reason: "Spam" } },
+    { user: null, service: accuseApi },
+  );
+  check("reporting a donor needs sign-in", response.status === 401, `got ${response.status}`);
+
+  response = await call(
+    "/api/donors/report",
+    { method: "POST", body: { sub: donor.sub, reason: "Spam" } },
+    { ...accuseSeeker, sameOrigin: false },
+  );
+  check("cross-origin donor reporting is 403", response.status === 403, `got ${response.status}`);
+
+  response = await call(
+    "/api/donors/report",
+    { method: "POST", body: { sub: donor.sub, reason: "Spam" } },
+    accuseSeeker,
+  );
+  check("a seeker can report a donor (201)", response.status === 201, `got ${response.status}`);
+  check("the donor report is acknowledged", (await body(response))?.reported === true);
+
+  response = await call(
+    "/api/donors/report",
+    { method: "POST", body: { sub: donor.sub, reason: "Because" } },
+    accuseSeeker,
+  );
+  check("an unknown donor report reason is 400", response.status === 400, `got ${response.status}`);
+
+  response = await call(
+    "/api/donors/report",
+    { method: "POST", body: { sub: donor.sub, reason: "Spam" } },
+    accuseDonor,
+  );
+  check("a donor cannot report a donor (403)", response.status === 403, `got ${response.status}`);
+
+  response = await call(
+    "/api/donors/report",
+    { method: "POST", body: { sub: "ghost", reason: "Spam" } },
+    accuseSeeker,
+  );
+  check("reporting an unknown donor is 404", response.status === 404, `got ${response.status}`);
+
+  response = await call("/api/moderation/reports", {}, { ...accuseSeeker, moderatorEmails: "asha@example.com" });
+  const donorQueueBody = await body(response);
+  check(
+    "the donor report is in the moderation queue",
+    donorQueueBody?.reports?.[0]?.type === "donor" && donorQueueBody?.total === 1,
+    JSON.stringify(donorQueueBody?.reports?.[0]?.type),
+  );
+  check(
+    "the queue names the reported donor with their number",
+    donorQueueBody?.reports?.[0]?.donor?.name === "Ravi Kumar" &&
+      donorQueueBody?.reports?.[0]?.donor?.phone === "9812345678",
+  );
+
   console.log("donor search result cap");
   const cappedSearch = makeService({ maxResultsPerSearch: 2 });
   await cappedSearch.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });

@@ -476,6 +476,17 @@ function renderDonors() {
           </div>
           <p class="muted small">${esc(donor.bloodGroup)} · ${esc(donor.city)}</p>
           <p class="small">Contact: <a href="tel:${esc(donor.phone)}">${esc(donor.phone)}</a></p>
+          ${
+            state.profile.role === "seeker"
+              ? `<div class="row" style="margin-top:0.5rem;align-items:center">
+                   <select data-report-donor-reason="${esc(donor.sub)}" aria-label="Why are you reporting this donor?"
+                           style="flex:1;min-width:8rem;margin:0">
+                     ${REPORT_REASONS.map((reason) => `<option>${esc(reason)}</option>`).join("")}
+                   </select>
+                   <button class="small" type="button" data-report-donor="${esc(donor.sub)}">Report</button>
+                 </div>`
+              : ""
+          }
         </article>`,
               )
               .join("")
@@ -490,6 +501,22 @@ function renderDonors() {
     const data = Object.fromEntries(new FormData(form));
     state.donorFilters = { group: data.group, city: data.city };
     searchDonors();
+  });
+
+  app.querySelectorAll("button[data-report-donor]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const donorSub = button.dataset.reportDonor;
+      const reason = app.querySelector(`select[data-report-donor-reason="${donorSub}"]`)?.value;
+      button.disabled = true;
+      try {
+        await api("/api/donors/report", { method: "POST", body: { sub: donorSub, reason } });
+        toast("Report sent. Thank you — we will look at this donor.");
+      } catch (error) {
+        toast(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
   });
 }
 
@@ -618,7 +645,7 @@ function renderModeration() {
       <h1>Reports</h1>
       ${total ? `<span class="tag warn">${total} total</span>` : ""}
     </div>
-    <p class="muted small">Every report a donor has filed, newest first.</p>
+    <p class="muted small">Every report, newest first: requests flagged by donors and donors flagged by seekers.</p>
     <div class="stack">
       ${
         reports.length
@@ -630,6 +657,29 @@ function renderModeration() {
 }
 
 function moderationCardHtml(report) {
+  if (report.type === "donor") {
+    const donor = report.donor;
+    const donorPhone = donor.phone
+      ? `<a href="tel:${esc(donor.phone)}">${esc(donor.phone)}</a>`
+      : "no number on file";
+    return `
+    <article class="card">
+      <div class="between">
+        <h3>${esc(report.reason)}</h3>
+        <span class="small muted">${esc(dateLabel(report.createdAt))}</span>
+      </div>
+      <p class="small">Donor ${esc(donor.name ?? "account")}${
+        donor.bloodGroup ? ` · ${esc(donor.bloodGroup)}` : ""
+      }${donor.city ? ` · ${esc(donor.city)}` : ""}</p>
+      <p class="small">Contact: ${donorPhone}</p>
+      <p class="small muted">
+        ${donor.reportsAgainst} report(s) against this donor ·
+        filed by ${esc(report.reporter.name ?? "a seeker")}
+      </p>
+    </article>
+  `;
+  }
+
   const request = report.request;
   const requester = report.requester;
   const phone = requester.phone
