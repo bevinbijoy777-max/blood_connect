@@ -55,14 +55,14 @@ export function profileToJson(row) {
 }
 
 /**
- * A donor shown in search results. Nobody else's phone number or donation date
- * is exposed here: the availability label already says whether they can give
- * blood right now, and the number only arrives once they accept a request.
+ * A donor shown in search results. The name and contact number are shown so a
+ * seeker can call directly; the donation date stays private.
  */
 export function donorToJson(row) {
   const profile = profileToJson(row);
   return {
     name: profile.name,
+    phone: profile.phone,
     city: profile.city,
     bloodGroup: profile.bloodGroup,
     availability: profile.availability,
@@ -334,7 +334,11 @@ export class BloodConnectService {
       const request = await this.requests.get(row.request_id);
       // Blocked accounts disappear from the inbox, including older requests.
       if (!request || blocked.has(request.requester_sub)) continue;
-      notifications.push({ ...notificationToJson(row), request: requestToJson(request) });
+      const requester = await this.profiles.get(request.requester_sub);
+      notifications.push({
+        ...notificationToJson(row),
+        request: requestToJson(request, { requesterName: requester?.name ?? null }),
+      });
     }
     // A donor who can no longer answer is not counted as waiting.
     return {

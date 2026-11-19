@@ -163,7 +163,7 @@ function renderSignIn() {
     <div class="hero">
       <h1>Blood Connect</h1>
       <p class="muted">Find a matching blood donor, or answer a request near you.</p>
-      <p class="small muted">Donor phone numbers stay hidden until the donor accepts.</p>
+      <p class="small muted">Contact numbers are shown so you can call a donor or a seeker directly.</p>
     </div>
     <a class="button primary" href="/auth/freebuff/signin?returnTo=/">Sign in with Freebuff</a>
     <p class="small muted" style="margin-top:1rem">
@@ -370,6 +370,7 @@ function requestCardHtml(request) {
           request.isActive ? ` · closes ${esc(dateLabel(request.expiresOn))}` : ""
         }</span>
       </p>
+      <p class="small">Contact: <a href="tel:${esc(request.contact)}">${esc(request.contact)}</a></p>
       ${request.note ? `<p class="small">${esc(request.note)}</p>` : ""}
       ${
         accepted.length
@@ -428,7 +429,7 @@ async function searchDonors() {
 function renderDonors() {
   app.innerHTML = `
     <h1>Donors</h1>
-    <p class="muted small">Phone numbers stay hidden until a donor accepts a request.</p>
+    <p class="muted small">Call a donor directly on the number shown.</p>
     <form class="card row" id="donor-filters" style="align-items:flex-end">
       <label style="flex:1;min-width:8rem;margin:0"><span>Blood group</span>
         <select name="group">
@@ -456,6 +457,7 @@ function renderDonors() {
             <span class="tag${donor.canReceiveRequests ? " ok" : " warn"}">${esc(donor.availability)}</span>
           </div>
           <p class="muted small">${esc(donor.bloodGroup)} · ${esc(donor.city)}</p>
+          <p class="small">Contact: <a href="tel:${esc(donor.phone)}">${esc(donor.phone)}</a></p>
         </article>`,
               )
               .join("")
@@ -555,6 +557,7 @@ function inboxCardHtml(notification) {
         ${urgencyTag(request.urgency)}
       </div>
       <p class="muted small">${request.units} unit(s) · ${esc(request.hospital)}, ${esc(request.city)}</p>
+      <p class="small">From ${esc(request.requesterName ?? "the requester")}: <a href="tel:${esc(request.contact)}">${esc(request.contact)}</a></p>
       ${request.note ? `<p class="small">${esc(request.note)}</p>` : ""}
       <p class="small muted">${esc(dateLabel(request.createdAt))} · ${esc(request.status)}${
         request.isActive ? ` · closes ${esc(dateLabel(request.expiresOn))}` : ""

@@ -7,7 +7,7 @@ Sign in – email and salted PBKDF2 password hashing; plain passwords are never 
 Blood requests – submit a request with patient, blood group, units, hospital, city, contact and urgency.
 Blood group matching – every matching, available and currently eligible donor receives an in-app notification.
 Notifications and responses – donors accept or decline a request; accepting marks the request "Donor found" and sends the seeker the donor's contact number.
-Donor search – seekers can filter registered donors by blood group and city. Numbers stay private until a donor accepts.
+Donor search – seekers can filter registered donors by blood group and city, and see each donor's name and contact number so they can call directly.
 Donor profile – pause notifications, log a donation, and see the next eligible date (90 days after a donation).
 Request hygiene – a request stays open for three days and then reads as Expired, and one account can post at most three requests a day. The web app enforces the same two rules.
 
@@ -47,7 +47,7 @@ The build recipe is blood_connect.spec; the Python version floor and the PyInsta
 Every push to main also builds both bundles in GitHub Actions and uploads them as run artifacts, so a broken Windows or macOS build shows up before you release anything. Only a v* tag (or a manual run) publishes a GitHub release; re-running one for an existing tag replaces the attached files.
 
 Mobile web app
-app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and contact numbers stay hidden until a donor accepts. A request stays open for three days and then reads as Expired, and one account can post at most three requests a day, so stale requests do not linger and nobody can flood donors. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
+app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and donor search and requests show the name with the contact number so either side can call directly. A request stays open for three days and then reads as Expired, and one account can post at most three requests a day, so stale requests do not linger and nobody can flood donors. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
 
 Live app: https://site-69e3da5752364c3d893d669df627c833.freebuff.page
 

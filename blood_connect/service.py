@@ -158,6 +158,10 @@ class BloodConnectService:
         donors = self._people.list_donors(blood_group=blood_group or None, city=city or None)
         return sorted(donors, key=lambda d: (not d.can_receive_requests, d.full_name.lower()))
 
+    def requester_for(self, request: BloodRequest) -> Person | None:
+        """The account that posted a request, so a donor can see who to call."""
+        return self._people.find_by_id(request.requester_id)
+
     def responses_for(self, seeker: Person, request_id: int) -> list[tuple[Notification, Person | None]]:
         self._owned_request(seeker, request_id)
         responses = self._notifications.list_for_request(

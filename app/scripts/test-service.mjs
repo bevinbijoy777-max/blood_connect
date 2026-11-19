@@ -83,17 +83,20 @@ async function run() {
   const inbox = await service.inbox("donor-1");
   check("donor inbox has one pending request", inbox.pending === 1);
   check("inbox carries the request details", inbox.notifications[0]?.request?.hospital === "Ruby Hall");
+  check("inbox names the requester with their contact number",
+    inbox.notifications[0]?.request?.requesterName === "Asha Rao" &&
+      inbox.notifications[0]?.request?.contact === "9876543210");
   check("resting donor got nothing", (await service.inbox("donor-2")).notifications.length === 0);
   check("paused donor got nothing", (await service.inbox("donor-3")).notifications.length === 0);
 
-  console.log("search privacy");
+  console.log("donor search");
   const donors = await service.searchDonors({ bloodGroup: "O+" });
   check("search finds the O+ donors", donors.length === 3, `got ${donors.length}`);
-  check("search results never include a phone number", donors.every((d) => !("phone" in d)));
+  check("search results include the donor phone number", donors.every((d) => Boolean(d.phone)));
   check("search results never include a donation date", donors.every((d) => !("lastDonation" in d)));
   check("unavailable donors sort last", donors.at(-1).canReceiveRequests === false);
   const single = donorToJson(await service.profiles.get("donor-1"));
-  check("donorToJson hides phone", !("phone" in single));
+  check("donorToJson shares the phone number", single.phone === "9812345678");
   check("donorToJson hides donation date", !("lastDonation" in single));
 
   console.log("accepting a request");

@@ -156,12 +156,15 @@ async function run() {
   response = await call("/api/donors?group=O%2B", {}, asSeeker);
   const { donors } = await body(response);
   check("donor search is 200", response.status === 200);
-  check("donor search omits phone numbers", donors?.every((entry) => !("phone" in entry)));
+  check("donor search includes phone numbers", donors?.every((entry) => Boolean(entry.phone)));
   check("donor search omits donation dates", donors?.every((entry) => !("lastDonation" in entry)));
 
   response = await call("/api/inbox", {}, asDonor);
   const inbox = await body(response);
   check("donor inbox lists the request", inbox?.notifications?.length === 1);
+  check("donor inbox names the requester with their phone number",
+    Boolean(inbox?.notifications?.[0]?.request?.requesterName) &&
+      inbox?.notifications?.[0]?.request?.contact === "9876543210");
   const notificationId = inbox.notifications[0].id;
 
   response = await call("/api/notifications/" + notificationId, { method: "POST", body: { accept: true } }, asDonor);

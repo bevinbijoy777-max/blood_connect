@@ -544,8 +544,8 @@ class RequestBloodTab(DashboardTab):
         ttk.Label(
             self,
             text=f"Your account is {self.person.full_name} ({self.person.email}). "
-                 "Donors see the patient, hospital and city — your contact number is "
-                 "only shared with donors who accept.",
+                 "Donors see your name, the patient, hospital, city and your contact "
+                 "number, so they can reach you.",
             style="Muted.TLabel", wraplength=780, justify="left",
         ).pack(anchor="w", pady=(12, 0))
 
@@ -695,6 +695,7 @@ class FindDonorsTab(DashboardTab):
     TITLE = "Find donors"
     COLUMNS = (
         ("donor", "Donor", 190, "w"),
+        ("phone", "Contact", 140, "w"),
         ("group", "Blood group", 100, "center"),
         ("city", "City", 150, "w"),
         ("availability", "Availability", 200, "w"),
@@ -725,7 +726,7 @@ class FindDonorsTab(DashboardTab):
         self.table.pack(fill="both", expand=True, pady=(14, 8))
         ttk.Label(
             self,
-            text="Contact numbers stay private until a donor accepts your request. "
+            text="Call a donor directly on the contact number shown. "
                  "Donors who gave blood in the last 90 days are shown but not alerted.",
             style="Muted.TLabel", wraplength=780, justify="left",
         ).pack(anchor="w")
@@ -739,14 +740,14 @@ class FindDonorsTab(DashboardTab):
             self.table.tree.insert(
                 "", "end",
                 values=(
-                    donor.full_name, donor.blood_group, donor.city,
+                    donor.full_name, donor.phone, donor.blood_group, donor.city,
                     donor.availability_text(),
                     donor.last_donation.isoformat() if donor.last_donation else "—",
                 ),
                 tags=() if donor.can_receive_requests else ("muted",),
             )
         if not donors:
-            self.table.tree.insert("", "end", values=("No donors found", "", "", "", ""),
+            self.table.tree.insert("", "end", values=("No donors found", "", "", "", "", ""),
                                    tags=("muted",))
 
 
@@ -757,6 +758,8 @@ class DonorNotificationsTab(DashboardTab):
     TITLE = "Requests for me"
     COLUMNS = (
         ("received", "Received", 90, "center"),
+        ("requester", "Requester", 140, "w"),
+        ("contact", "Contact", 130, "w"),
         ("patient", "Patient", 130, "w"),
         ("group", "Group", 70, "center"),
         ("units", "Units", 60, "center"),
@@ -796,6 +799,7 @@ class DonorNotificationsTab(DashboardTab):
         self.table.clear()
         self._messages = {}
         for notification, request in self.service.incoming_requests(self.person):
+            requester = self.service.requester_for(request)
             self._messages[notification.id] = notification.message
             expired = notification.is_pending and not request.is_active
             tag = ""
@@ -807,6 +811,8 @@ class DonorNotificationsTab(DashboardTab):
                 "", "end", iid=str(notification.id),
                 values=(
                     notification.created_at.isoformat(),
+                    requester.full_name if requester else "—",
+                    request.contact,
                     request.patient_name,
                     request.blood_group,
                     request.units,
