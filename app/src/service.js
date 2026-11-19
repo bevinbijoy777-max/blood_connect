@@ -6,13 +6,23 @@
  * id supplied by the client.
  */
 
-import { BlockRepo, NotificationRepo, ProfileRepo, PushRepo, ReportRepo, RequestRepo } from "./db.js";
+import {
+  BlockRepo,
+  NotificationRepo,
+  ProfileRepo,
+  PushRepo,
+  ReportRepo,
+  RequestRepo,
+  SearchQuotaRepo,
+} from "./db.js";
 import {
   ApiError,
   cleanText,
   eligibility,
   expiresOn,
   isExpired,
+  MAX_DONOR_RESULTS,
+  MAX_DONOR_SEARCHES_PER_DAY,
   MAX_REQUESTS_PER_DAY,
   normaliseBloodGroup,
   normalisePhone,
@@ -112,8 +122,11 @@ export class BloodConnectService {
     this.push = new PushRepo(db);
     this.reports = new ReportRepo(db);
     this.blocks = new BlockRepo(db);
+    this.searchQuota = new SearchQuotaRepo(db);
     // Overridable so tests can focus on other rules.
     this.maxRequestsPerDay = MAX_REQUESTS_PER_DAY;
+    this.maxSearchesPerDay = MAX_DONOR_SEARCHES_PER_DAY;
+    this.maxResultsPerSearch = MAX_DONOR_RESULTS;
   }
 
   // -- profile ------------------------------------------------------------ //
@@ -312,16 +325,36 @@ export class BloodConnectService {
   // -- donors and inbox --------------------------------------------------- //
   async searchDonors({ bloodGroup, city, viewerSub }) {
     const group = bloodGroup ? normaliseBloodGroup(bloodGroup) : null;
+    // Search results carry contact numbers, so each account gets a daily
+    // allowance; a refused search still counts, so retrying changes nothing.
+    if (viewerSub) {
+      const used = await this.searchQuota.hit(viewerSub, todayIso());
+      if (used > this.maxSearchesPerDay) {
+        throw new ApiError(
+          `You can search donors ${this.maxSearchesPerDay} times a day. Please try again tomorrow.`,
+          429,
+        );
+      }
+    }
     const rows = await this.profiles.listDonors({
       bloodGroup: group,
       city: city ? String(city).trim() : null,
     });
     // A donor who blocked this account is hidden from its search too.
     const hidden = new Set(viewerSub ? await this.blocks.donorSubsBlocking(viewerSub) : []);
-    return rows
+    const matching = rows
       .filter((row) => !hidden.has(row.sub))
       .map(donorToJson)
       .sort((a, b) => Number(b.canReceiveRequests) - Number(a.canReceiveRequests) || a.name.localeCompare(b.name));
+    // One search must not hand out a whole city of numbers; the most useful
+    // (available, eligible) donors come first, and the caller is told how many
+    // were held back so the client can say so instead of pretending that is all.
+    const donors = matching.slice(0, this.maxResultsPerSearch);
+    return {
+      donors,
+      total: matching.length,
+      remaining: matching.length - donors.length,
+    };
   }
 
   async inbox(sub) {
@@ -471,5 +504,48 @@ export class BloodConnectService {
     if (!target) throw new ApiError("Choose the account to unblock.");
     await this.blocks.unblock(sub, target);
     return { blocked: false };
+  }
+
+  // -- moderation ---------------------------------------------------------- //
+
+  /**
+   * Every report a donor has filed, newest first, with the request and both
+   * accounts named. Reading only: a moderator decides what to do about it.
+   */
+  async moderationQueue({ limit = 200 } = {}) {
+    const [rows, counts] = await Promise.all([
+      this.reports.listRecent(limit),
+      this.reports.countsByRequester(),
+    ]);
+    const against = new Map(counts.map((row) => [row.requester_sub, Number(row.total)]));
+    return {
+      total: [...against.values()].reduce((sum, value) => sum + value, 0),
+      reports: rows.map((row) => ({
+        id: row.id,
+        reason: row.reason,
+        createdAt: row.created_at,
+        request: row.request_id
+          ? {
+              id: row.request_id,
+              patientName: row.patient_name,
+              bloodGroup: row.blood_group,
+              units: row.units,
+              hospital: row.hospital,
+              city: row.city,
+              urgency: row.urgency,
+              status: row.status,
+              createdAt: row.request_created_at,
+            }
+          : null,
+        requester: {
+          sub: row.requester_sub,
+          name: row.requester_name ?? null,
+          phone: row.requester_phone ?? null,
+          city: row.requester_city ?? null,
+          reportsAgainst: against.get(row.requester_sub) ?? 1,
+        },
+        reporter: { sub: row.reporter_sub, name: row.reporter_name ?? null },
+      })),
+    };
   }
 }

@@ -67,6 +67,13 @@ export const STATEMENTS = [
   created_at  TEXT NOT NULL,
   PRIMARY KEY (donor_sub, blocked_sub)
 )`,
+  // One row per account per day: how many donor searches they have used.
+  `CREATE TABLE IF NOT EXISTS search_quota (
+  sub   TEXT NOT NULL,
+  day   TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (sub, day)
+)`,
   `CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requester_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_request_reports_requester ON request_reports(requester_sub)`,
   `CREATE INDEX IF NOT EXISTS idx_blocked_requesters_blocked ON blocked_requesters(blocked_sub)`,
@@ -354,6 +361,62 @@ export class ReportRepo {
       .bind(requesterSub)
       .all();
     return results ?? [];
+  }
+
+  /**
+   * Every report, newest first, with the request it is about and both accounts
+   * named. This is what a moderator reads; the client never queries D1.
+   */
+  async listRecent(limit = 200) {
+    const { results } = await this.db
+      .prepare(
+        `SELECT r.id, r.request_id, r.reason, r.created_at, r.requester_sub, r.reporter_sub,
+                req.patient_name, req.blood_group, req.units, req.hospital, req.city,
+                req.urgency, req.status, req.created_at AS request_created_at,
+                seeker.name AS requester_name, seeker.phone AS requester_phone,
+                seeker.city AS requester_city,
+                reporter.name AS reporter_name
+           FROM request_reports r
+           LEFT JOIN requests req ON req.id = r.request_id
+           LEFT JOIN profiles seeker ON seeker.sub = r.requester_sub
+           LEFT JOIN profiles reporter ON reporter.sub = r.reporter_sub
+          ORDER BY r.id DESC
+          LIMIT ?`,
+      )
+      .bind(limit)
+      .all();
+    return results ?? [];
+  }
+
+  /** How many reports each account has collected, so one account stands out. */
+  async countsByRequester() {
+    const { results } = await this.db
+      .prepare("SELECT requester_sub, COUNT(*) AS total FROM request_reports GROUP BY requester_sub")
+      .all();
+    return results ?? [];
+  }
+}
+
+export class SearchQuotaRepo {
+  constructor(db) {
+    this.db = db;
+  }
+
+  /**
+   * Count one donor search and return the day's running total. The upsert is
+   * a single statement, so two searches in flight cannot both read a stale
+   * count and slip past the cap.
+   */
+  async hit(sub, isoDate) {
+    const row = await this.db
+      .prepare(
+        `INSERT INTO search_quota (sub, day, count) VALUES (?, ?, 1)
+         ON CONFLICT(sub, day) DO UPDATE SET count = count + 1
+         RETURNING count`,
+      )
+      .bind(sub, isoDate)
+      .first();
+    return Number(row?.count ?? 1);
   }
 }
 

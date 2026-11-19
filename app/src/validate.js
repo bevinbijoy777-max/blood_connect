@@ -13,6 +13,18 @@ export const MAX_UNITS = 10;
 export const REQUEST_LIFETIME_DAYS = 3;
 /** How many requests one account may post in a day. */
 export const MAX_REQUESTS_PER_DAY = 3;
+/**
+ * How many donor searches one account may run in a day. Search results carry
+ * contact numbers, so the cap keeps a single account from harvesting them.
+ */
+export const MAX_DONOR_SEARCHES_PER_DAY = 60;
+/**
+ * How many donors one search may return. A city filter with no cap is a
+ * whole directory of phone numbers in a single response, whatever the daily
+ * search allowance is, so the list is cut and the client is told how many
+ * were left out.
+ */
+export const MAX_DONOR_RESULTS = 20;
 
 /** The first day a request is no longer open. */
 export function expiresOn(createdAt) {

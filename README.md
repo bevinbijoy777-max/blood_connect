@@ -11,7 +11,7 @@ Donor search – seekers can filter registered donors by blood group and city, a
 Donor profile – pause notifications, log a donation, and see the next eligible date (90 days after a donation).
 Request hygiene – a request stays open for three days and then reads as Expired, and one account can post at most three requests a day. The web app enforces the same two rules.
 
-Reporting and blocking – a donor can report a request (looks fake, wrong details, spam, rude or abusive) and block the account behind it; blocked accounts never reach that donor's inbox, devices or donor search results again, and the block can be undone from the profile.
+Reporting and blocking – a donor can report a request (looks fake, wrong details, spam, rude or abusive) and block the account behind it; blocked accounts never reach that donor's inbox, devices or donor search results again, and the block can be undone from the profile. Reports are read in the moderation queue described below.
 The app only introduces people. Final donor eligibility and blood compatibility must always be confirmed by qualified medical staff.
 Download and run (no Python needed)
 Download BloodConnect.exe for Windows or BloodConnect.app for macOS, then open it.
@@ -47,7 +47,7 @@ The build recipe is blood_connect.spec; the Python version floor and the PyInsta
 Every push to main also builds both bundles in GitHub Actions and uploads them as run artifacts, so a broken Windows or macOS build shows up before you release anything. Only a v* tag (or a manual run) publishes a GitHub release; re-running one for an existing tag replaces the attached files.
 
 Mobile web app
-app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and donor search and requests show the name with the contact number so either side can call directly. A request stays open for three days and then reads as Expired, and one account can post at most three requests a day, so stale requests do not linger and nobody can flood donors. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
+app/ is the same app built for phones and browsers. It keeps the desktop rules: only available and eligible donors are notified, and donor search and requests show the name with the contact number so either side can call directly. A request stays open for three days and then reads as Expired, and one account can post at most three requests a day, so stale requests do not linger and nobody can flood donors. Donor search is capped at 60 searches per account per day, and the reports donors file are readable by a moderator as described below. Data lives in a D1 database and sign-in is handled by Freebuff, so no password is stored.
 
 Live app: https://site-69e3da5752364c3d893d669df627c833.freebuff.page
 
@@ -55,6 +55,12 @@ cd app
 npm install
 npm run build
 npm run dev                     # local Worker + local database on http://localhost:8787
+
+### Moderation
+
+Reports filed by donors are stored in `request_reports` and read through a Reports tab that only appears for the accounts named in a `MODERATOR_EMAILS` variable: a comma-separated list of sign-in emails, added in Sites -> Secrets and bound on the next deploy. Without it nobody sees reports and `/api/moderation/reports` answers 403, so keep the list short and treat it like any other secret. The queue is read-only and newest first; each row shows the reason and date, the request it was filed against, the account behind that request with its contact number, and how many reports that account has collected, which is what makes a repeat offender obvious. Nothing in it can be edited or deleted from the app.
+
+Donor search is also limited twice over, because its results carry phone numbers. One account may search `MAX_DONOR_SEARCHES_PER_DAY` (currently 60) times a day, counted in `search_quota` and reset by the UTC date; the 61st search is a 429 with the same shape as the request cap. Each search also returns at most `MAX_DONOR_RESULTS` donors (currently 20), best matches first, with the response carrying `total` and `remaining` so the app says "Showing 20 of 34 matching donors" instead of implying that is everyone. Together the two caps mean a single account cannot walk out with a city of phone numbers however it pages; raise either number in app/src/validate.js if real seekers hit them.
 
 Publishing the web app to Freebuff Sites starts from the repository root: package.json builds app/ and deploy.json points at its output. Keeping those at the root is what lets the Publish button find the app; the desktop files are not part of that build.
 

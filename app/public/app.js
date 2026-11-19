@@ -15,8 +15,12 @@ const state = {
   tab: "requests",
   requests: [],
   donors: [],
+  donorsTotal: 0,
+  donorsRemaining: 0,
   inbox: { notifications: [], pending: 0 },
   blocked: [],
+  isModerator: false,
+  moderation: { reports: [], total: 0 },
   showRequestForm: false,
   donorFilters: { group: "", city: "" },
   loading: true,
@@ -76,6 +80,7 @@ async function load() {
     const data = await api("/api/me");
     state.user = data.user;
     state.profile = data.profile;
+    state.isModerator = Boolean(data.moderator);
     if (state.profile) await refresh();
     // Keeps an existing device subscription alive across sign-ins and resets.
     if (state.profile) syncPushSubscription();
@@ -108,6 +113,7 @@ function render() {
   if (state.tab === "requests") renderRequests();
   else if (state.tab === "donors") renderDonors();
   else if (state.tab === "inbox") renderInbox();
+  else if (state.tab === "moderation") renderModeration();
   else renderProfile();
 }
 
@@ -181,6 +187,8 @@ function renderTabs() {
     const badge = state.inbox.pending ? `<span class="badge">${state.inbox.pending}</span>` : "";
     tabs.push(["inbox", `Inbox${badge}`, "📥"]);
   }
+  // Only accounts listed in MODERATOR_EMAILS are told they can read reports.
+  if (state.isModerator) tabs.push(["moderation", "Reports", "🚩"]);
   tabs.push(["profile", "Profile", "👤"]);
 
   tabsEl.innerHTML = tabs
@@ -201,6 +209,8 @@ function renderTabs() {
       } else if (state.tab === "inbox") {
         render();
         refreshInbox();
+      } else if (state.tab === "moderation") {
+        loadModeration();
       } else {
         render();
       }
@@ -420,6 +430,8 @@ async function searchDonors() {
     if (state.donorFilters.city) params.set("city", state.donorFilters.city);
     const data = await api(`/api/donors?${params}`);
     state.donors = data.donors ?? [];
+    state.donorsTotal = data.total ?? state.donors.length;
+    state.donorsRemaining = data.remaining ?? 0;
   } catch (error) {
     toast(error.message, true);
   }
@@ -445,6 +457,12 @@ function renderDonors() {
       </label>
       <button type="submit" class="small primary">Search</button>
     </form>
+    ${
+      state.donorsRemaining
+        ? `<p class="small muted">Showing ${state.donors.length} of ${state.donorsTotal} matching donors.
+             Add a city or blood group to narrow the list and see the rest.</p>`
+        : ""
+    }
     <div class="stack" style="margin-top:1rem">
       ${
         state.donors.length
@@ -578,6 +596,64 @@ function inboxCardHtml(notification) {
         <button class="small" type="button" data-report="${request.id}">Report</button>
         <button class="small danger" type="button" data-block="${request.id}">Block</button>
       </div>
+    </article>
+  `;
+}
+
+// ---------------------------------------------------------------- moderation
+async function loadModeration() {
+  try {
+    const data = await api("/api/moderation/reports");
+    state.moderation = { reports: data.reports ?? [], total: data.total ?? 0 };
+  } catch (error) {
+    toast(error.message, true);
+  }
+  renderModeration();
+}
+
+function renderModeration() {
+  const { reports, total } = state.moderation;
+  app.innerHTML = `
+    <div class="between">
+      <h1>Reports</h1>
+      ${total ? `<span class="tag warn">${total} total</span>` : ""}
+    </div>
+    <p class="muted small">Every report a donor has filed, newest first.</p>
+    <div class="stack">
+      ${
+        reports.length
+          ? reports.map(moderationCardHtml).join("")
+          : '<p class="empty">No reports have been filed.</p>'
+      }
+    </div>
+  `;
+}
+
+function moderationCardHtml(report) {
+  const request = report.request;
+  const requester = report.requester;
+  const phone = requester.phone
+    ? `<a href="tel:${esc(requester.phone)}">${esc(requester.phone)}</a>`
+    : "no number on file";
+  return `
+    <article class="card">
+      <div class="between">
+        <h3>${esc(report.reason)}</h3>
+        <span class="small muted">${esc(dateLabel(report.createdAt))}</span>
+      </div>
+      ${
+        request
+          ? `<p class="small">${esc(request.bloodGroup)} · ${esc(request.patientName)} ·
+               ${request.units} unit(s) · ${esc(request.hospital)}, ${esc(request.city)}</p>
+             <p class="small muted">${esc(request.urgency)} · ${esc(request.status)} ·
+               posted ${esc(dateLabel(request.createdAt))}</p>`
+          : '<p class="small muted">The request this was filed against is no longer available.</p>'
+      }
+      <p class="small">Posted by ${esc(requester.name ?? "an account")}: ${phone}</p>
+      <p class="small muted">
+        ${requester.reportsAgainst} report(s) against this account ·
+        filed by ${esc(report.reporter.name ?? "a donor")}
+      </p>
     </article>
   `;
 }

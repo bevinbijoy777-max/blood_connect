@@ -27,10 +27,25 @@ async function readBody(request) {
 }
 
 /**
+ * Moderators are named by sign-in email in MODERATOR_EMAILS (comma separated).
+ * Nothing the client sends can make an account a moderator, and an unset
+ * variable leaves the report queue readable by nobody.
+ */
+export function isModerator(user, moderatorEmails) {
+  if (!user?.email) return false;
+  const allowed = String(moderatorEmails ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(String(user.email).trim().toLowerCase());
+}
+
+/**
  * @param {Request} request
  * @param {{ user: {sub: string, name?: string, email?: string} | null,
  *           sameOrigin: boolean, service: BloodConnectService,
  *           pushPublicKey?: string | null,
+ *           moderatorEmails?: string,
  *           notifyDonors?: (recipients: {sub: string}[], request: object) => Promise<void>,
  *           notifySeeker?: (event: {sub: string}) => Promise<void> }} context
  */
@@ -39,6 +54,7 @@ export async function routeApi(request, {
   sameOrigin,
   service,
   pushPublicKey = null,
+  moderatorEmails = "",
   notifyDonors = null,
   notifySeeker = null,
 }) {
@@ -57,6 +73,8 @@ export async function routeApi(request, {
     return json({
       user: { name: user.name ?? null, email: user.email ?? null },
       profile: profileToJson(profile),
+      // The client only shows the moderation tab to these accounts.
+      moderator: isModerator(user, moderatorEmails),
     });
   }
 
@@ -120,16 +138,27 @@ export async function routeApi(request, {
 
   // -- donors and notifications ------------------------------------------- //
   if (path === "/api/donors" && method === "GET") {
-    const donors = await service.searchDonors({
+    const { donors, total, remaining } = await service.searchDonors({
       bloodGroup: url.searchParams.get("group"),
       city: url.searchParams.get("city"),
       viewerSub: user.sub,
     });
-    return json({ donors });
+    // `remaining` lets the app say that the list was cut, rather than implying
+    // these are every matching donor.
+    return json({ donors, total, remaining });
   }
 
   if (path === "/api/inbox" && method === "GET") {
     return json(await service.inbox(user.sub));
+  }
+
+  // -- moderation ---------------------------------------------------------- //
+  // Only accounts named in MODERATOR_EMAILS may read the report queue.
+  if (path === "/api/moderation/reports" && method === "GET") {
+    if (!isModerator(user, moderatorEmails)) {
+      return json({ error: "Only moderators can read reports." }, 403);
+    }
+    return json(await service.moderationQueue());
   }
 
   if (path === "/api/blocked" && method === "GET") {
@@ -210,6 +239,7 @@ export async function handleApi(request, env, { auth, isSameOriginRequest }) {
       // Without VAPID keys the app still works; it just cannot push in the
       // background, and the client hides the notification setting.
       pushPublicKey: config?.publicKey ?? null,
+      moderatorEmails: env.MODERATOR_EMAILS ?? "",
       notifyDonors: config
         ? (recipients, created) =>
             pushTo(service, recipients.map((recipient) => recipient.sub), requestPushPayload(created), config)

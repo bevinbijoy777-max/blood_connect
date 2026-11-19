@@ -472,6 +472,66 @@ async function run() {
     ((await body(response))?.donors ?? []).some((entry) => entry.name === "Ravi Kumar"),
   );
 
+  console.log("moderation");
+  response = await call("/api/moderation/reports", {}, { user: null, service: guarded });
+  check("the report queue needs sign-in", response.status === 401, `got ${response.status}`);
+
+  response = await call("/api/moderation/reports", {}, guardSeeker);
+  check("an ordinary account cannot read reports (403)", response.status === 403, `got ${response.status}`);
+
+  response = await call("/api/moderation/reports", {}, { ...guardDonor, moderatorEmails: "someone@example.com" });
+  check("only a listed email may moderate", response.status === 403, `got ${response.status}`);
+
+  response = await call("/api/moderation/reports", {}, {
+    ...guardSeeker,
+    moderatorEmails: "asha@example.com",
+  });
+  const queue = await body(response);
+  check("a moderator reads the queue (200)", response.status === 200, `got ${response.status}`);
+  check("the report filed earlier is there", queue?.total === 1, String(queue?.total));
+  check("it names the reported account with its phone", queue?.reports?.[0]?.requester?.name === "Asha Rao" && queue?.reports?.[0]?.requester?.phone === "9876543210");
+  check("it names the donor who reported", queue?.reports?.[0]?.reporter?.name === "Ravi Kumar");
+  check("it carries the reported request", queue?.reports?.[0]?.request?.id === guardId);
+
+  response = await call("/api/me", {}, { ...guardSeeker, moderatorEmails: "ASHA@example.com" });
+  check("/api/me says a listed email is a moderator", (await body(response))?.moderator === true);
+  response = await call("/api/me", {}, guardSeeker);
+  check("/api/me says an ordinary account is not", (await body(response))?.moderator === false);
+
+  console.log("donor search rate limit");
+  const limitedSearch = makeService({ maxSearchesPerDay: 2 });
+  await limitedSearch.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  await limitedSearch.saveProfile(donor, {
+    role: "donor",
+    phone: "9812345678",
+    city: "Pune",
+    bloodGroup: "O+",
+  });
+  const limitedSeeker = { user: seeker, service: limitedSearch };
+  for (let index = 0; index < 2; index += 1) {
+    response = await call("/api/donors?group=O%2B", {}, limitedSeeker);
+    check(`search ${index + 1} of the day is allowed`, response.status === 200, `got ${response.status}`);
+  }
+  response = await call("/api/donors?group=O%2B", {}, limitedSeeker);
+  check("the search after the allowance is 429", response.status === 429, `got ${response.status}`);
+  check("the refusal explains the cap", /2 times a day/i.test((await body(response))?.error ?? ""));
+
+  console.log("donor search result cap");
+  const cappedSearch = makeService({ maxResultsPerSearch: 2 });
+  await cappedSearch.saveProfile(seeker, { role: "seeker", phone: "9876543210", city: "Pune" });
+  for (const [index, group] of ["O+", "A+", "B+"].entries()) {
+    await cappedSearch.saveProfile(
+      { sub: `crowd-${index}`, name: `Donor ${index}`, email: `crowd${index}@example.com` },
+      { role: "donor", phone: `98000000${10 + index}`, city: "Pune", bloodGroup: group },
+    );
+  }
+  response = await call("/api/donors", {}, { user: seeker, service: cappedSearch });
+  const cappedBody = await body(response);
+  check("a capped search is still 200", response.status === 200, `got ${response.status}`);
+  check("the response stops at the cap", cappedBody?.donors?.length === 2, String(cappedBody?.donors?.length));
+  check("it reports every match", cappedBody?.total === 3, String(cappedBody?.total));
+  check("it says how many were left out", cappedBody?.remaining === 1, String(cappedBody?.remaining));
+
   finish();
 }
 

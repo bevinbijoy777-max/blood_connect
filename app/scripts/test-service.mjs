@@ -90,7 +90,7 @@ async function run() {
   check("paused donor got nothing", (await service.inbox("donor-3")).notifications.length === 0);
 
   console.log("donor search");
-  const donors = await service.searchDonors({ bloodGroup: "O+" });
+  const { donors } = await service.searchDonors({ bloodGroup: "O+" });
   check("search finds the O+ donors", donors.length === 3, `got ${donors.length}`);
   check("search results include the donor phone number", donors.every((d) => Boolean(d.phone)));
   check("search results never include a donation date", donors.every((d) => !("lastDonation" in d)));
@@ -370,15 +370,31 @@ async function run() {
   check("nobody is pushed to on their behalf", !afterBlock.recipients.some((entry) => entry.sub === "donor-1"));
   check("other donors still hear about the request", (await guarding.inbox(neighbour.sub)).notifications.length === 2);
 
-  const seekerSearch = await guarding.searchDonors({ bloodGroup: "O+", viewerSub: "seeker-1" });
+  const seekerSearch = (await guarding.searchDonors({ bloodGroup: "O+", viewerSub: "seeker-1" })).donors;
   check(
     "a donor who blocked you is hidden from your search",
     !seekerSearch.some((entry) => entry.name === "Ravi Kumar"),
     JSON.stringify(seekerSearch.map((entry) => entry.name)),
   );
   check("other donors still appear in that search", seekerSearch.some((entry) => entry.name === "Neha Patil"));
-  const anonymousSearch = await guarding.searchDonors({ bloodGroup: "O+" });
+  const anonymousSearch = (await guarding.searchDonors({ bloodGroup: "O+" })).donors;
   check("search without a viewer is unchanged", anonymousSearch.some((entry) => entry.name === "Ravi Kumar"));
+
+  console.log("moderation queue");
+  // A second donor reports the same request, so the queue has two rows.
+  await guarding.reportRequest(neighbour.sub, spam.request.id, "Rude or abusive");
+  const queue = await guarding.moderationQueue();
+  check("every report is listed", queue.total === 2, String(queue.total));
+  check("the newest report comes first", queue.reports[0].reason === "Rude or abusive", queue.reports[0].reason);
+  check("a report names the account behind the request", queue.reports[0].requester.name === "Asha Rao");
+  check("it shows that account's phone number", queue.reports[0].requester.phone === "9876543210");
+  check(
+    "it counts the reports against that account",
+    queue.reports.every((report) => report.requester.reportsAgainst === 2),
+    JSON.stringify(queue.reports.map((report) => report.requester.reportsAgainst)),
+  );
+  check("a report carries the request it is about", queue.reports[0].request?.hospital === "Ruby Hall");
+  check("it names the donor who filed it", queue.reports[0].reporter.name === "Neha Patil", queue.reports[0].reporter.name);
 
   await guarding.unblockAccount("donor-1", "seeker-1");
   check("unblocking empties the block list", (await guarding.blockedAccounts("donor-1")).length === 0);
@@ -389,9 +405,46 @@ async function run() {
   );
   check(
     "unblocking brings the donor back to search",
-    (await guarding.searchDonors({ bloodGroup: "O+", viewerSub: "seeker-1" })).some(
+    (await guarding.searchDonors({ bloodGroup: "O+", viewerSub: "seeker-1" })).donors.some(
       (entry) => entry.name === "Ravi Kumar",
     ),
+  );
+
+  console.log("donor search rate limit");
+  check("the allowance is sixty searches a day", new BloodConnectService(null).maxSearchesPerDay === 60);
+  const limited = makeService({ maxSearchesPerDay: 2 });
+  await limited.saveProfile(donor, { role: "donor", phone: "9812345678", city: "Pune", bloodGroup: "O+" });
+  check("the first search is allowed", (await limited.searchDonors({ viewerSub: "seeker-1" })).donors.length === 1);
+  await limited.searchDonors({ viewerSub: "seeker-1" });
+  let limitedError = null;
+  try {
+    await limited.searchDonors({ viewerSub: "seeker-1" });
+  } catch (error) {
+    limitedError = error;
+  }
+  check("the search after the allowance is refused", limitedError?.status === 429, String(limitedError?.status));
+  check("the refusal explains the cap", /2 times a day/.test(limitedError?.message ?? ""), limitedError?.message);
+  check(
+    "another account has its own allowance",
+    (await limited.searchDonors({ viewerSub: "seeker-2" })).donors.length === 1,
+  );
+
+  console.log("donor search result cap");
+  check("a search returns at most twenty donors", new BloodConnectService(null).maxResultsPerSearch === 20);
+  const crowded = makeService({ maxResultsPerSearch: 2 });
+  for (const [index, group] of ["A+", "B+", "O-", "AB+"].entries()) {
+    await crowded.saveProfile(
+      { sub: `bulk-${index}`, name: `Donor ${index}`, email: `bulk${index}@example.com` },
+      { role: "donor", phone: `98123456${70 + index}`, city: "Pune", bloodGroup: group },
+    );
+  }
+  const crowdedResult = await crowded.searchDonors({ viewerSub: "seeker-1" });
+  check("the list stops at the cap", crowdedResult.donors.length === 2, String(crowdedResult.donors.length));
+  check("every match is still counted", crowdedResult.total === 4, String(crowdedResult.total));
+  check("it reports how many were left out", crowdedResult.remaining === 2, String(crowdedResult.remaining));
+  check(
+    "the cap counts matching donors, not all donors",
+    (await crowded.searchDonors({ bloodGroup: "A+", viewerSub: "seeker-1" })).remaining === 0,
   );
 
   finish();
