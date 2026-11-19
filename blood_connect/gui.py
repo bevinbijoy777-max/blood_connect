@@ -665,11 +665,11 @@ class MyRequestsTab(DashboardTab):
                 text="No donor has answered yet. Donors are notified as soon as the request opens."
             )
             return
-        self.empty.configure(text="Accepted donors shared their number so you can call them.")
+        self.empty.configure(text="Every donor who answered is listed with the number to call.")
         for notification, donor in responses:
             name = donor.full_name if donor else "A donor"
             group = donor.blood_group if donor else "—"
-            phone = donor.phone if donor and notification.is_accepted else "Hidden"
+            phone = donor.phone if donor else "—"
             self.responses.tree.insert(
                 "", "end",
                 values=(name, group, phone, notification.response_label,

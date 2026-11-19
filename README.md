@@ -6,7 +6,7 @@ User registration – create a seeker account or register as a donor with blood 
 Sign in – email and salted PBKDF2 password hashing; plain passwords are never stored.
 Blood requests – submit a request with patient, blood group, units, hospital, city, contact and urgency.
 Blood group matching – every matching, available and currently eligible donor receives an in-app notification.
-Notifications and responses – donors accept or decline a request; accepting marks the request "Donor found" and sends the seeker the donor's contact number.
+Notifications and responses – donors accept or decline a request; accepting marks the request "Donor found", and the seeker sees the name and contact number of every donor who answered.
 Donor search – seekers can filter registered donors by blood group and city, and see each donor's name and contact number so they can call directly.
 Donor profile – pause notifications, log a donation, and see the next eligible date (90 days after a donation).
 Request hygiene – a request stays open for three days and then reads as Expired, and one account can post at most three requests a day. The web app enforces the same two rules.
